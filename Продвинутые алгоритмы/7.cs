@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace ConsoleApp14
 {
-    // Упрощенная версия Fibonacci Heap (для демонстрации принципов)
     public class FibonacciHeapItem<T> where T : IEquatable<T>
     {
         public T Value { get; set; }
@@ -40,7 +42,7 @@ namespace ConsoleApp14
             return _indexMap.ContainsKey(value);
         }
 
-        // O(1) - вставка
+        // вставка
         public void Insert(T value, long priority)
         {
             var newItem = new FibonacciHeapItem<T>(value, priority);
@@ -64,7 +66,7 @@ namespace ConsoleApp14
             _count++;
         }
 
-        // O(log n) - извлечение минимума
+        // извлечение минимума
         public T ExtractMin()
         {
             if (_minNode == null)
@@ -110,7 +112,7 @@ namespace ConsoleApp14
             return _minNode.Value;
         }
 
-        // O(1) - уменьшение приоритета (амортизированно)
+        // уменьшение приоритета
         public void DecreasePriority(T value, long newPriority)
         {
             if (!_indexMap.TryGetValue(value, out var item))
@@ -134,7 +136,7 @@ namespace ConsoleApp14
             }
         }
 
-        // O(log n) - удаление
+        // удаление
         public void Remove(T value)
         {
             if (!Contains(value))
