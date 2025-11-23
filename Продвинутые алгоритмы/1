@@ -1,0 +1,2028 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ConsoleApp5
+{
+    internal class Program
+    {
+        internal class Program
+        {
+            static void Main(string[] args)
+            {
+                // Тестирование различных алгоритмов
+                TestAllAlgorithms();
+            }
+
+            static void TestAllAlgorithms()
+            {
+                Console.WriteLine("=== Testing All Algorithms ===\n");
+
+                TestKnapsack();
+                TestSegmentTree();
+                TestDijkstra();
+                TestSuffixTree();
+                TestUnionFind();
+                TestKMP();
+                TestRabinKarp();
+                TestMedianFinder();
+                TestTSP();
+                TestBellmanFord();
+                TestKruskal();
+                TestSCC();
+                TestBridges();
+                TestArticulationPoints();
+                TestLCA();
+                TestExternalSort();
+                TestFibonacciHeap();
+                TestMaxFlow();
+                TestBTree();
+
+                Console.WriteLine("\n=== All Tests Completed ===");
+            }
+
+            static void TestKnapsack()
+            {
+                Console.WriteLine("1.1 Knapsack Test:");
+                int[] weights = { 2, 3, 4, 5 };
+                int[] values = { 3, 4, 5, 6 };
+                int capacity = 5;
+
+                var result = Knapsack01.Solve(weights, values, capacity);
+                Console.WriteLine($"Max Value: {result.maxValue}, Items: [{string.Join(", ", result.selectedItems)}]");
+            }
+
+            static void TestSegmentTree()
+            {
+                Console.WriteLine("\n1.2 Segment Tree Test:");
+                int[] arr = { 1, 3, 5, 7, 9, 11 };
+                var st = new SegmentTree(arr, SegmentTree.Operation.Sum);
+                Console.WriteLine($"Sum [1,4]: {st.QueryRange(1, 4)}");
+                st.UpdateRange(1, 3, 2);
+                Console.WriteLine($"After update - Sum [1,4]: {st.QueryRange(1, 4)}");
+            }
+
+            static void TestDijkstra()
+            {
+                Console.WriteLine("\n1.3 Dijkstra Test:");
+                var graph = new List<List<(int, int)>>
+            {
+                new List<(int, int)> { (1, 4), (2, 1) },
+                new List<(int, int)> { (3, 1) },
+                new List<(int, int)> { (1, 2), (3, 5) },
+                new List<(int, int)> { }
+            };
+
+                var (distances, paths) = Dijkstra.FindShortestPaths(graph, 0);
+                Console.WriteLine($"Distances: [{string.Join(", ", distances)}]");
+            }
+
+            static void TestSuffixTree()
+            {
+                Console.WriteLine("\n1.4 Suffix Tree Test:");
+                var st = new SuffixTree("banana");
+                var positions = st.SearchPattern("ana");
+                Console.WriteLine($"Pattern 'ana' found at: [{string.Join(", ", positions)}]");
+                Console.WriteLine($"Longest repeated substring: {st.FindLongestRepeatedSubstring()}");
+            }
+
+            static void TestUnionFind()
+            {
+                Console.WriteLine("\n1.5 Union-Find Test:");
+                var uf = new UnionFind(5);
+                uf.Union(0, 1);
+                uf.Union(2, 3);
+                uf.Union(1, 4);
+                Console.WriteLine($"Components: {uf.ComponentsCount}");
+                Console.WriteLine($"Connected(0,4): {uf.Connected(0, 4)}");
+            }
+
+            static void TestKMP()
+            {
+                Console.WriteLine("\n1.17 KMP Test:");
+                var positions = KMP.Search("ABABDABACDABABCABAB", "ABABCABAB");
+                Console.WriteLine($"Pattern found at: [{string.Join(", ", positions)}]");
+            }
+
+            static void TestRabinKarp()
+            {
+                Console.WriteLine("\n1.18 Rabin-Karp Test:");
+                var positions = RabinKarp.Search("ABABDABACDABABCABAB", "ABABCABAB");
+                Console.WriteLine($"Pattern found at: [{string.Join(", ", positions)}]");
+            }
+
+            static void TestMedianFinder()
+            {
+                Console.WriteLine("\n1.20 Median Finder Test:");
+                var mf = new MedianFinder();
+                int[] nums = { 1, 3, 2, 5, 4 };
+                foreach (int num in nums)
+                {
+                    mf.AddNum(num);
+                    Console.WriteLine($"After adding {num}: Median = {mf.FindMedian()}");
+                }
+            }
+
+            static void TestTSP()
+            {
+                Console.WriteLine("\n1.14 TSP Test:");
+                int[,] graph = {
+                { 0, 10, 15, 20 },
+                { 10, 0, 35, 25 },
+                { 15, 35, 0, 30 },
+                { 20, 25, 30, 0 }
+            };
+                var result = TSP.Solve(graph);
+                Console.WriteLine($"TSP Path: [{string.Join(" -> ", result.path)}], Cost: {result.cost}");
+            }
+
+            static void TestBellmanFord()
+            {
+                Console.WriteLine("\n1.15 Bellman-Ford Test:");
+                var edges = new List<BellmanFord.Edge>
+            {
+                new BellmanFord.Edge(0, 1, 4),
+                new BellmanFord.Edge(0, 2, 5),
+                new BellmanFord.Edge(1, 2, -2),
+                new BellmanFord.Edge(2, 3, 3)
+            };
+                var (distances, negativeCycle) = BellmanFord.FindShortestPaths(4, edges, 0);
+                Console.WriteLine($"Distances: [{string.Join(", ", distances)}]");
+                Console.WriteLine($"Negative cycle found: {negativeCycle}");
+            }
+
+            static void TestKruskal()
+            {
+                Console.WriteLine("\n1.12 Kruskal MST Test:");
+                var edges = new List<Kruskal.Edge>
+            {
+                new Kruskal.Edge(0, 1, 10),
+                new Kruskal.Edge(0, 2, 6),
+                new Kruskal.Edge(0, 3, 5),
+                new Kruskal.Edge(1, 3, 15),
+                new Kruskal.Edge(2, 3, 4)
+            };
+                var mst = Kruskal.FindMST(4, edges);
+                Console.WriteLine($"MST Cost: {mst.cost}");
+                Console.WriteLine($"MST Edges: {string.Join(", ", mst.edges.Select(e => $"{e.from}-{e.to}({e.weight})"))}");
+            }
+
+            static void TestSCC()
+            {
+                Console.WriteLine("\n1.13 SCC Test:");
+                var graph = new List<List<int>>
+            {
+                new List<int> { 1 },
+                new List<int> { 2 },
+                new List<int> { 0, 3 },
+                new List<int> { 4 },
+                new List<int> { 5, 7 },
+                new List<int> { 6 },
+                new List<int> { 4, 7 },
+                new List<int> { }
+            };
+                var scc = Kosaraju.FindSCC(8, graph);
+                Console.WriteLine($"SCC Count: {scc.Count}");
+                for (int i = 0; i < scc.Count; i++)
+                {
+                    Console.WriteLine($"Component {i + 1}: [{string.Join(", ", scc[i])}]");
+                }
+            }
+
+            static void TestBridges()
+            {
+                Console.WriteLine("\n1.9 Bridges Test:");
+                var graph = new List<List<int>>
+            {
+                new List<int> { 1, 2 },
+                new List<int> { 0, 2 },
+                new List<int> { 0, 1, 3 },
+                new List<int> { 2, 4 },
+                new List<int> { 3 }
+            };
+                var bridges = BridgeFinder.FindBridges(5, graph);
+                Console.WriteLine($"Bridges: {string.Join(", ", bridges.Select(b => $"{b.u}-{b.v}"))}");
+            }
+
+            static void TestArticulationPoints()
+            {
+                Console.WriteLine("\n1.10 Articulation Points Test:");
+                var graph = new List<List<int>>
+            {
+                new List<int> { 1, 2 },
+                new List<int> { 0, 2 },
+                new List<int> { 0, 1, 3 },
+                new List<int> { 2, 4 },
+                new List<int> { 3 }
+            };
+                var points = ArticulationPoints.FindArticulationPoints(5, graph);
+                Console.WriteLine($"Articulation Points: [{string.Join(", ", points)}]");
+            }
+
+            static void TestLCA()
+            {
+                Console.WriteLine("\n1.11 LCA Test:");
+                var tree = new List<List<int>>
+            {
+                new List<int> { 1, 2 },
+                new List<int> { 3, 4 },
+                new List<int> { 5 },
+                new List<int> { },
+                new List<int> { },
+                new List<int> { }
+            };
+                var lcaFinder = new LCA(tree, 0);
+                Console.WriteLine($"LCA(3,4): {lcaFinder.FindLCA(3, 4)}");
+                Console.WriteLine($"LCA(3,5): {lcaFinder.FindLCA(3, 5)}");
+            }
+
+            static void TestExternalSort()
+            {
+                Console.WriteLine("\n1.19 External Sort Test:");
+                // Создаем тестовый файл
+                string inputFile = "test_input.txt";
+                string outputFile = "test_output.txt";
+
+                using (var writer = new StreamWriter(inputFile))
+                {
+                    var random = new Random();
+                    for (int i = 0; i < 100; i++)
+                    {
+                        writer.WriteLine(random.Next(1000));
+                    }
+                }
+
+                ExternalSorter.SortFile(inputFile, outputFile, 10);
+                Console.WriteLine($"External sort completed. Output file: {outputFile}");
+
+                // Удаляем временные файлы
+                if (File.Exists(inputFile)) File.Delete(inputFile);
+                if (File.Exists(outputFile)) File.Delete(outputFile);
+            }
+
+            static void TestFibonacciHeap()
+            {
+                Console.WriteLine("\n1.7 Fibonacci Heap Test:");
+                var heap = new FibonacciHeap<int>();
+                heap.Insert(5);
+                heap.Insert(3);
+                heap.Insert(8);
+                heap.Insert(1);
+
+                Console.WriteLine($"Min: {heap.FindMin()}");
+                Console.WriteLine($"Extracted: {heap.ExtractMin()}");
+                Console.WriteLine($"New Min: {heap.FindMin()}");
+            }
+
+            static void TestMaxFlow()
+            {
+                Console.WriteLine("\n1.8 Max Flow Test:");
+                int[,] capacity = {
+                { 0, 16, 13, 0, 0, 0 },
+                { 0, 0, 10, 12, 0, 0 },
+                { 0, 4, 0, 0, 14, 0 },
+                { 0, 0, 9, 0, 0, 20 },
+                { 0, 0, 0, 7, 0, 4 },
+                { 0, 0, 0, 0, 0, 0 }
+            };
+                var maxFlow = FordFulkerson.MaxFlow(capacity, 0, 5);
+                Console.WriteLine($"Max Flow: {maxFlow}");
+            }
+
+            static void TestBTree()
+            {
+                Console.WriteLine("\n1.6 B-Tree Test:");
+                var btree = new BTree(3);
+                btree.Insert(10);
+                btree.Insert(20);
+                btree.Insert(5);
+                btree.Insert(6);
+                btree.Insert(12);
+                btree.Insert(30);
+                btree.Insert(7);
+                btree.Insert(17);
+
+                Console.WriteLine($"Search 6: {btree.Search(6)}");
+                Console.WriteLine($"Search 15: {btree.Search(15)}");
+            }
+        }
+
+        #region 1.1 Задача о рюкзаке
+        public static class Knapsack01
+        {
+            public static (int maxValue, List<int> selectedItems) Solve(int[] weights, int[] values, int capacity)
+            {
+                int n = weights.Length;
+                int[,] dp = new int[n + 1, capacity + 1];
+
+                for (int i = 1; i <= n; i++)
+                {
+                    for (int w = 0; w <= capacity; w++)
+                    {
+                        if (weights[i - 1] <= w)
+                        {
+                            dp[i, w] = Math.Max(
+                                dp[i - 1, w],
+                                dp[i - 1, w - weights[i - 1]] + values[i - 1]
+                            );
+                        }
+                        else
+                        {
+                            dp[i, w] = dp[i - 1, w];
+                        }
+                    }
+                }
+
+                List<int> selectedItems = new List<int>();
+                int remainingCapacity = capacity;
+                for (int i = n; i > 0; i--)
+                {
+                    if (dp[i, remainingCapacity] != dp[i - 1, remainingCapacity])
+                    {
+                        selectedItems.Add(i - 1);
+                        remainingCapacity -= weights[i - 1];
+                    }
+                }
+
+                selectedItems.Reverse();
+                return (dp[n, capacity], selectedItems);
+            }
+
+            public static int BoundedKnapsack(int[] weights, int[] values, int[] counts, int capacity)
+            {
+                int n = weights.Length;
+                int[] dp = new int[capacity + 1];
+
+                for (int i = 0; i < n; i++)
+                {
+                    for (int j = capacity; j >= weights[i]; j--)
+                    {
+                        for (int k = 1; k <= counts[i] && k * weights[i] <= j; k++)
+                        {
+                            dp[j] = Math.Max(dp[j], dp[j - k * weights[i]] + k * values[i]);
+                        }
+                    }
+                }
+
+                return dp[capacity];
+            }
+
+            public static int UnboundedKnapsack(int[] weights, int[] values, int capacity)
+            {
+                int[] dp = new int[capacity + 1];
+
+                for (int w = 0; w <= capacity; w++)
+                {
+                    for (int i = 0; i < weights.Length; i++)
+                    {
+                        if (weights[i] <= w)
+                        {
+                            dp[w] = Math.Max(dp[w], dp[w - weights[i]] + values[i]);
+                        }
+                    }
+                }
+
+                return dp[capacity];
+            }
+        }
+        #endregion
+
+        #region 1.2 Дерево сегментов с ленивым распространением
+        public class SegmentTree
+        {
+            private int[] tree;
+            private int[] lazy;
+            private int[] original;
+            private int n;
+            private Operation operation;
+
+            public enum Operation { Sum, Min, Max }
+
+            public SegmentTree(int[] arr, Operation op)
+            {
+                n = arr.Length;
+                original = arr;
+                operation = op;
+                tree = new int[4 * n];
+                lazy = new int[4 * n];
+                Build(1, 0, n - 1);
+            }
+
+            private void Build(int node, int start, int end)
+            {
+                if (start == end)
+                {
+                    tree[node] = original[start];
+                }
+                else
+                {
+                    int mid = (start + end) / 2;
+                    Build(2 * node, start, mid);
+                    Build(2 * node + 1, mid + 1, end);
+                    tree[node] = Combine(tree[2 * node], tree[2 * node + 1]);
+                }
+            }
+
+            private int Combine(int a, int b)
+            {
+                return operation switch
+                {
+                    Operation.Sum => a + b,
+                    Operation.Min => Math.Min(a, b),
+                    Operation.Max => Math.Max(a, b),
+                    _ => a + b
+                };
+            }
+
+            public void UpdateRange(int l, int r, int value)
+            {
+                UpdateRange(1, 0, n - 1, l, r, value);
+            }
+
+            private void UpdateRange(int node, int start, int end, int l, int r, int value)
+            {
+                if (lazy[node] != 0)
+                {
+                    tree[node] += (end - start + 1) * lazy[node];
+                    if (start != end)
+                    {
+                        lazy[2 * node] += lazy[node];
+                        lazy[2 * node + 1] += lazy[node];
+                    }
+                    lazy[node] = 0;
+                }
+
+                if (start > end || start > r || end < l) return;
+
+                if (start >= l && end <= r)
+                {
+                    tree[node] += (end - start + 1) * value;
+                    if (start != end)
+                    {
+                        lazy[2 * node] += value;
+                        lazy[2 * node + 1] += value;
+                    }
+                    return;
+                }
+
+                int mid = (start + end) / 2;
+                UpdateRange(2 * node, start, mid, l, r, value);
+                UpdateRange(2 * node + 1, mid + 1, end, l, r, value);
+                tree[node] = Combine(tree[2 * node], tree[2 * node + 1]);
+            }
+
+            public int QueryRange(int l, int r)
+            {
+                return QueryRange(1, 0, n - 1, l, r);
+            }
+
+            private int QueryRange(int node, int start, int end, int l, int r)
+            {
+                if (start > end || start > r || end < l)
+                    return operation == Operation.Min ? int.MaxValue : 0;
+
+                if (lazy[node] != 0)
+                {
+                    tree[node] += (end - start + 1) * lazy[node];
+                    if (start != end)
+                    {
+                        lazy[2 * node] += lazy[node];
+                        lazy[2 * node + 1] += lazy[node];
+                    }
+                    lazy[node] = 0;
+                }
+
+                if (start >= l && end <= r)
+                    return tree[node];
+
+                int mid = (start + end) / 2;
+                int left = QueryRange(2 * node, start, mid, l, r);
+                int right = QueryRange(2 * node + 1, mid + 1, end, l, r);
+                return Combine(left, right);
+            }
+        }
+        #endregion
+
+        #region 1.3 Алгоритм Дейкстры
+        public class Dijkstra
+        {
+            public static (int[] distances, List<List<int>> paths) FindShortestPaths(
+                List<List<(int to, int weight)>> graph, int start)
+            {
+                int n = graph.Count;
+                int[] dist = new int[n];
+                List<HashSet<int>> prev = new List<HashSet<int>>();
+                List<List<int>> allPaths = new List<List<int>>();
+
+                for (int i = 0; i < n; i++)
+                {
+                    dist[i] = int.MaxValue;
+                    prev.Add(new HashSet<int>());
+                    allPaths.Add(new List<int>());
+                }
+
+                dist[start] = 0;
+
+                var pq = new PriorityQueue<(int node, int distance), int>();
+                pq.Enqueue((start, 0), 0);
+
+                while (pq.Count > 0)
+                {
+                    var (current, currentDist) = pq.Dequeue();
+
+                    if (currentDist > dist[current]) continue;
+
+                    foreach (var (neighbor, weight) in graph[current])
+                    {
+                        int newDist = currentDist + weight;
+
+                        if (newDist < dist[neighbor])
+                        {
+                            dist[neighbor] = newDist;
+                            prev[neighbor].Clear();
+                            prev[neighbor].Add(current);
+                            pq.Enqueue((neighbor, newDist), newDist);
+                        }
+                        else if (newDist == dist[neighbor])
+                        {
+                            prev[neighbor].Add(current);
+                        }
+                    }
+                }
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (dist[i] != int.MaxValue)
+                    {
+                        ReconstructPaths(i, start, prev, new List<int>(), allPaths);
+                    }
+                }
+
+                return (dist, allPaths);
+            }
+
+            private static void ReconstructPaths(int current, int start, List<HashSet<int>> prev,
+                List<int> currentPath, List<List<int>> allPaths)
+            {
+                currentPath.Add(current);
+
+                if (current == start)
+                {
+                    currentPath.Reverse();
+                    allPaths[current].AddRange(currentPath);
+                    currentPath.Reverse();
+                }
+                else
+                {
+                    foreach (int p in prev[current])
+                    {
+                        ReconstructPaths(p, start, prev, currentPath, allPaths);
+                    }
+                }
+
+                currentPath.RemoveAt(currentPath.Count - 1);
+            }
+        }
+
+        public class PriorityQueue<TElement, TPriority> where TPriority : IComparable<TPriority>
+        {
+            private List<(TElement element, TPriority priority)> elements = new List<(TElement, TPriority)>();
+
+            public int Count => elements.Count;
+
+            public void Enqueue(TElement element, TPriority priority)
+            {
+                elements.Add((element, priority));
+                int child = elements.Count - 1;
+                while (child > 0)
+                {
+                    int parent = (child - 1) / 2;
+                    if (elements[child].priority.CompareTo(elements[parent].priority) >= 0)
+                        break;
+                    Swap(child, parent);
+                    child = parent;
+                }
+            }
+
+            public TElement Dequeue()
+            {
+                var result = elements[0].element;
+                elements[0] = elements[elements.Count - 1];
+                elements.RemoveAt(elements.Count - 1);
+
+                int parent = 0;
+                while (true)
+                {
+                    int left = 2 * parent + 1;
+                    int right = 2 * parent + 2;
+                    if (left >= elements.Count) break;
+
+                    int minChild = (right < elements.Count &&
+                        elements[right].priority.CompareTo(elements[left].priority) < 0) ? right : left;
+
+                    if (elements[parent].priority.CompareTo(elements[minChild].priority) <= 0)
+                        break;
+
+                    Swap(parent, minChild);
+                    parent = minChild;
+                }
+
+                return result;
+            }
+
+            public TElement Peek() => elements[0].element;
+
+            private void Swap(int i, int j)
+            {
+                var temp = elements[i];
+                elements[i] = elements[j];
+                elements[j] = temp;
+            }
+        }
+        #endregion
+
+        #region 1.4 Суффиксное дерево
+        public class SuffixTree
+        {
+            private class Node
+            {
+                public Dictionary<char, Node> Children = new Dictionary<char, Node>();
+                public int Start;
+                public int? End;
+                public Node SuffixLink;
+                public bool IsLeaf => Children.Count == 0;
+            }
+
+            private Node root = new Node();
+            private string text;
+            private Node activeNode;
+            private int activeEdge = -1;
+            private int activeLength = 0;
+            private int remainingSuffixCount = 0;
+            private int leafEnd = -1;
+
+            public SuffixTree(string text)
+            {
+                this.text = text + "$";
+                BuildTree();
+            }
+
+            private void BuildTree()
+            {
+                activeNode = root;
+                for (int i = 0; i < text.Length; i++)
+                {
+                    ExtendTree(i);
+                }
+            }
+
+            private void ExtendTree(int pos)
+            {
+                leafEnd = pos;
+                remainingSuffixCount++;
+                Node lastNewNode = null;
+
+                while (remainingSuffixCount > 0)
+                {
+                    if (activeLength == 0)
+                        activeEdge = pos;
+
+                    if (!activeNode.Children.ContainsKey(text[activeEdge]))
+                    {
+                        activeNode.Children[text[activeEdge]] = new Node { Start = pos, End = null };
+                        if (lastNewNode != null)
+                        {
+                            lastNewNode.SuffixLink = activeNode;
+                            lastNewNode = null;
+                        }
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    remainingSuffixCount--;
+                    if (activeNode != root)
+                        activeNode = activeNode.SuffixLink ?? root;
+                }
+            }
+
+            public List<int> SearchPattern(string pattern)
+            {
+                List<int> positions = new List<int>();
+                Node current = root;
+                int patternIndex = 0;
+
+                while (patternIndex < pattern.Length)
+                {
+                    if (!current.Children.ContainsKey(pattern[patternIndex]))
+                        return positions;
+
+                    current = current.Children[pattern[patternIndex]];
+                    int edgeLength = (current.End ?? leafEnd) - current.Start + 1;
+
+                    for (int i = 0; i < edgeLength && patternIndex < pattern.Length; i++, patternIndex++)
+                    {
+                        if (text[current.Start + i] != pattern[patternIndex])
+                            return positions;
+                    }
+                }
+
+                CollectPositions(current, positions);
+                return positions;
+            }
+
+            private void CollectPositions(Node node, List<int> positions)
+            {
+                if (node.IsLeaf)
+                {
+                    positions.Add(text.Length - (leafEnd - node.Start + 1));
+                }
+                else
+                {
+                    foreach (var child in node.Children.Values)
+                    {
+                        CollectPositions(child, positions);
+                    }
+                }
+            }
+
+            public string FindLongestRepeatedSubstring()
+            {
+                string result = "";
+                FindLRS(root, "", ref result);
+                return result;
+            }
+
+            private void FindLRS(Node node, string current, ref string longest)
+            {
+                if (node.Children.Count > 1 && current.Length > longest.Length)
+                {
+                    longest = current;
+                }
+
+                foreach (var child in node.Children.Values)
+                {
+                    string edge = text.Substring(child.Start, (child.End ?? leafEnd) - child.Start + 1);
+                    FindLRS(child, current + edge, ref longest);
+                }
+            }
+
+            public string FindLongestCommonSubstring(string other)
+            {
+                // Упрощенная реализация для демонстрации
+                string longest = "";
+                for (int i = 0; i < other.Length; i++)
+                {
+                    for (int j = i + 1; j <= other.Length; j++)
+                    {
+                        string substring = other.Substring(i, j - i);
+                        if (SearchPattern(substring).Count > 0 && substring.Length > longest.Length)
+                        {
+                            longest = substring;
+                        }
+                    }
+                }
+                return longest;
+            }
+        }
+        #endregion
+
+        #region 1.5 Union-Find
+        public class UnionFind
+        {
+            private int[] parent;
+            private int[] rank;
+            private int[] size;
+            private int components;
+            private Stack<(int, int, int, int)> history;
+
+            public UnionFind(int n, bool supportUndo = false)
+            {
+                parent = new int[n];
+                rank = new int[n];
+                size = new int[n];
+                components = n;
+
+                if (supportUndo)
+                    history = new Stack<(int, int, int, int)>();
+
+                for (int i = 0; i < n; i++)
+                {
+                    parent[i] = i;
+                    rank[i] = 0;
+                    size[i] = 1;
+                }
+            }
+
+            public int Find(int x)
+            {
+                if (parent[x] != x)
+                    parent[x] = Find(parent[x]);
+                return parent[x];
+            }
+
+            public bool Union(int x, int y)
+            {
+                int rootX = Find(x);
+                int rootY = Find(y);
+
+                if (rootX == rootY) return false;
+
+                if (history != null)
+                    history.Push((rootX, rootY, rank[rootX], components));
+
+                if (rank[rootX] < rank[rootY])
+                {
+                    parent[rootX] = rootY;
+                    size[rootY] += size[rootX];
+                }
+                else if (rank[rootX] > rank[rootY])
+                {
+                    parent[rootY] = rootX;
+                    size[rootX] += size[rootY];
+                }
+                else
+                {
+                    parent[rootY] = rootX;
+                    rank[rootX]++;
+                    size[rootX] += size[rootY];
+                }
+
+                components--;
+                return true;
+            }
+
+            public void Undo()
+            {
+                if (history == null || history.Count == 0)
+                    throw new InvalidOperationException("No operations to undo");
+
+                var (rootX, rootY, oldRank, oldComponents) = history.Pop();
+                parent[rootX] = rootX;
+                parent[rootY] = rootY;
+                rank[rootX] = oldRank;
+                components = oldComponents;
+            }
+
+            public bool Connected(int x, int y) => Find(x) == Find(y);
+            public int ComponentSize(int x) => size[Find(x)];
+            public int ComponentsCount => components;
+        }
+        #endregion
+
+        #region 1.6 B-дерево
+        public class BTree
+        {
+            private class BTreeNode
+            {
+                public int[] keys;
+                public int t;
+                public BTreeNode[] children;
+                public int n;
+                public bool leaf;
+
+                public BTreeNode(int t, bool leaf)
+                {
+                    this.t = t;
+                    this.leaf = leaf;
+                    keys = new int[2 * t - 1];
+                    children = new BTreeNode[2 * t];
+                    n = 0;
+                }
+
+                public void Traverse()
+                {
+                    int i;
+                    for (i = 0; i < n; i++)
+                    {
+                        if (!leaf)
+                            children[i].Traverse();
+                        Console.Write(keys[i] + " ");
+                    }
+
+                    if (!leaf)
+                        children[i].Traverse();
+                }
+
+                public bool Search(int k)
+                {
+                    int i = 0;
+                    while (i < n && k > keys[i])
+                        i++;
+
+                    if (i < n && keys[i] == k)
+                        return true;
+
+                    if (leaf)
+                        return false;
+
+                    return children[i].Search(k);
+                }
+            }
+
+            private BTreeNode root;
+            private int t;
+
+            public BTree(int t)
+            {
+                this.t = t;
+                root = null;
+            }
+
+            public void Traverse()
+            {
+                if (root != null)
+                    root.Traverse();
+            }
+
+            public bool Search(int k)
+            {
+                return root?.Search(k) ?? false;
+            }
+
+            public void Insert(int k)
+            {
+                if (root == null)
+                {
+                    root = new BTreeNode(t, true);
+                    root.keys[0] = k;
+                    root.n = 1;
+                }
+                else
+                {
+                    if (root.n == 2 * t - 1)
+                    {
+                        BTreeNode s = new BTreeNode(t, false);
+                        s.children[0] = root;
+                        SplitChild(s, 0, root);
+                        int i = 0;
+                        if (s.keys[0] < k)
+                            i++;
+                        InsertNonFull(s.children[i], k);
+                        root = s;
+                    }
+                    else
+                    {
+                        InsertNonFull(root, k);
+                    }
+                }
+            }
+
+            private void InsertNonFull(BTreeNode node, int k)
+            {
+                int i = node.n - 1;
+
+                if (node.leaf)
+                {
+                    while (i >= 0 && node.keys[i] > k)
+                    {
+                        node.keys[i + 1] = node.keys[i];
+                        i--;
+                    }
+                    node.keys[i + 1] = k;
+                    node.n++;
+                }
+                else
+                {
+                    while (i >= 0 && node.keys[i] > k)
+                        i--;
+
+                    i++;
+                    if (node.children[i].n == 2 * t - 1)
+                    {
+                        SplitChild(node, i, node.children[i]);
+                        if (node.keys[i] < k)
+                            i++;
+                    }
+                    InsertNonFull(node.children[i], k);
+                }
+            }
+
+            private void SplitChild(BTreeNode parent, int i, BTreeNode child)
+            {
+                BTreeNode newChild = new BTreeNode(child.t, child.leaf);
+                newChild.n = t - 1;
+
+                for (int j = 0; j < t - 1; j++)
+                    newChild.keys[j] = child.keys[j + t];
+
+                if (!child.leaf)
+                {
+                    for (int j = 0; j < t; j++)
+                        newChild.children[j] = child.children[j + t];
+                }
+
+                child.n = t - 1;
+
+                for (int j = parent.n; j >= i + 1; j--)
+                    parent.children[j + 1] = parent.children[j];
+
+                parent.children[i + 1] = newChild;
+
+                for (int j = parent.n - 1; j >= i; j--)
+                    parent.keys[j + 1] = parent.keys[j];
+
+                parent.keys[i] = child.keys[t - 1];
+                parent.n++;
+            }
+        }
+        #endregion
+
+        #region 1.7 Fibonacci Heap
+        public class FibonacciHeap<T> where T : IComparable<T>
+        {
+            private class Node
+            {
+                public T Key;
+                public int Degree;
+                public bool Marked;
+                public Node Parent;
+                public Node Child;
+                public Node Left;
+                public Node Right;
+
+                public Node(T key)
+                {
+                    Key = key;
+                    Degree = 0;
+                    Marked = false;
+                    Left = this;
+                    Right = this;
+                }
+            }
+
+            private Node minNode;
+            private int count;
+
+            public FibonacciHeap()
+            {
+                minNode = null;
+                count = 0;
+            }
+
+            public void Insert(T key)
+            {
+                var node = new Node(key);
+                if (minNode == null)
+                {
+                    minNode = node;
+                }
+                else
+                {
+                    AddToRootList(node);
+                    if (node.Key.CompareTo(minNode.Key) < 0)
+                        minNode = node;
+                }
+                count++;
+            }
+
+            public T FindMin()
+            {
+                if (minNode == null)
+                    throw new InvalidOperationException("Heap is empty");
+                return minNode.Key;
+            }
+
+            public T ExtractMin()
+            {
+                if (minNode == null)
+                    throw new InvalidOperationException("Heap is empty");
+
+                var min = minNode;
+                if (min.Child != null)
+                {
+                    var child = min.Child;
+                    do
+                    {
+                        var next = child.Right;
+                        AddToRootList(child);
+                        child.Parent = null;
+                        child = next;
+                    } while (child != min.Child);
+                }
+
+                RemoveFromRootList(min);
+                if (min == min.Right)
+                {
+                    minNode = null;
+                }
+                else
+                {
+                    minNode = min.Right;
+                    Consolidate();
+                }
+                count--;
+                return min.Key;
+            }
+
+            private void AddToRootList(Node node)
+            {
+                node.Left = minNode;
+                node.Right = minNode.Right;
+                minNode.Right.Left = node;
+                minNode.Right = node;
+            }
+
+            private void RemoveFromRootList(Node node)
+            {
+                node.Left.Right = node.Right;
+                node.Right.Left = node.Left;
+            }
+
+            private void Consolidate()
+            {
+                var degreeTable = new Dictionary<int, Node>();
+                var nodes = new List<Node>();
+                var current = minNode;
+                do
+                {
+                    nodes.Add(current);
+                    current = current.Right;
+                } while (current != minNode);
+
+                foreach (var node in nodes)
+                {
+                    var x = node;
+                    var deg = x.Degree;
+                    while (degreeTable.ContainsKey(deg))
+                    {
+                        var y = degreeTable[deg];
+                        if (x.Key.CompareTo(y.Key) > 0)
+                        {
+                            var temp = x;
+                            x = y;
+                            y = temp;
+                        }
+                        Link(y, x);
+                        degreeTable.Remove(deg);
+                        deg++;
+                    }
+                    degreeTable[deg] = x;
+                }
+
+                minNode = null;
+                foreach (var node in degreeTable.Values)
+                {
+                    if (minNode == null)
+                    {
+                        minNode = node;
+                    }
+                    else
+                    {
+                        AddToRootList(node);
+                        if (node.Key.CompareTo(minNode.Key) < 0)
+                            minNode = node;
+                    }
+                }
+            }
+
+            private void Link(Node child, Node parent)
+            {
+                RemoveFromRootList(child);
+                child.Left = child.Right = child;
+                if (parent.Child == null)
+                {
+                    parent.Child = child;
+                }
+                else
+                {
+                    AddToChildList(parent.Child, child);
+                }
+                child.Parent = parent;
+                parent.Degree++;
+                child.Marked = false;
+            }
+
+            private void AddToChildList(Node parent, Node child)
+            {
+                child.Left = parent;
+                child.Right = parent.Right;
+                parent.Right.Left = child;
+                parent.Right = child;
+            }
+
+            public int Count => count;
+            public bool IsEmpty => minNode == null;
+        }
+        #endregion
+
+        #region 1.8 Max Flow - Ford-Fulkerson
+        public static class FordFulkerson
+        {
+            public static int MaxFlow(int[,] capacity, int source, int sink)
+            {
+                int n = capacity.GetLength(0);
+                int[,] residual = (int[,])capacity.Clone();
+                int[] parent = new int[n];
+                int maxFlow = 0;
+
+                while (BFS(residual, source, sink, parent))
+                {
+                    int pathFlow = int.MaxValue;
+                    for (int v = sink; v != source; v = parent[v])
+                    {
+                        int u = parent[v];
+                        pathFlow = Math.Min(pathFlow, residual[u, v]);
+                    }
+
+                    for (int v = sink; v != source; v = parent[v])
+                    {
+                        int u = parent[v];
+                        residual[u, v] -= pathFlow;
+                        residual[v, u] += pathFlow;
+                    }
+
+                    maxFlow += pathFlow;
+                }
+
+                return maxFlow;
+            }
+
+            private static bool BFS(int[,] residual, int source, int sink, int[] parent)
+            {
+                int n = residual.GetLength(0);
+                bool[] visited = new bool[n];
+                Queue<int> queue = new Queue<int>();
+
+                queue.Enqueue(source);
+                visited[source] = true;
+                parent[source] = -1;
+
+                while (queue.Count > 0)
+                {
+                    int u = queue.Dequeue();
+
+                    for (int v = 0; v < n; v++)
+                    {
+                        if (!visited[v] && residual[u, v] > 0)
+                        {
+                            queue.Enqueue(v);
+                            parent[v] = u;
+                            visited[v] = true;
+                            if (v == sink)
+                                return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+        }
+        #endregion
+
+        #region 1.9 Поиск мостов
+        public static class BridgeFinder
+        {
+            public struct Bridge
+            {
+                public int u;
+                public int v;
+            }
+
+            public static List<Bridge> FindBridges(int n, List<List<int>> graph)
+            {
+                int[] disc = new int[n];
+                int[] low = new int[n];
+                int[] parent = new int[n];
+                bool[] visited = new bool[n];
+                List<Bridge> bridges = new List<Bridge>();
+                int time = 0;
+
+                InitializeArray(disc, -1);
+                InitializeArray(parent, -1);
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (!visited[i])
+                    {
+                        DFS(i, disc, low, parent, visited, graph, bridges, ref time);
+                    }
+                }
+
+                return bridges;
+            }
+
+            private static void InitializeArray(int[] array, int value)
+            {
+                for (int i = 0; i < array.Length; i++)
+                {
+                    array[i] = value;
+                }
+            }
+
+            private static void DFS(int u, int[] disc, int[] low, int[] parent, bool[] visited,
+                List<List<int>> graph, List<Bridge> bridges, ref int time)
+            {
+                visited[u] = true;
+                disc[u] = low[u] = ++time;
+
+                foreach (int v in graph[u])
+                {
+                    if (!visited[v])
+                    {
+                        parent[v] = u;
+                        DFS(v, disc, low, parent, visited, graph, bridges, ref time);
+
+                        low[u] = Math.Min(low[u], low[v]);
+
+                        if (low[v] > disc[u])
+                        {
+                            bridges.Add(new Bridge { u = u, v = v });
+                        }
+                    }
+                    else if (v != parent[u])
+                    {
+                        low[u] = Math.Min(low[u], disc[v]);
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region 1.10 Точки сочленения
+        public static class ArticulationPoints
+        {
+            public static List<int> FindArticulationPoints(int n, List<List<int>> graph)
+            {
+                int[] disc = new int[n];
+                int[] low = new int[n];
+                int[] parent = new int[n];
+                bool[] visited = new bool[n];
+                bool[] ap = new bool[n];
+                int time = 0;
+
+                InitializeArray(disc, -1);
+                InitializeArray(parent, -1);
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (!visited[i])
+                    {
+                        DFS(i, disc, low, parent, visited, ap, graph, ref time);
+                    }
+                }
+
+                List<int> result = new List<int>();
+                for (int i = 0; i < n; i++)
+                {
+                    if (ap[i])
+                        result.Add(i);
+                }
+
+                return result;
+            }
+
+            private static void InitializeArray(int[] array, int value)
+            {
+                for (int i = 0; i < array.Length; i++)
+                {
+                    array[i] = value;
+                }
+            }
+
+            private static void DFS(int u, int[] disc, int[] low, int[] parent, bool[] visited,
+                bool[] ap, List<List<int>> graph, ref int time)
+            {
+                visited[u] = true;
+                disc[u] = low[u] = ++time;
+                int children = 0;
+
+                foreach (int v in graph[u])
+                {
+                    if (!visited[v])
+                    {
+                        children++;
+                        parent[v] = u;
+                        DFS(v, disc, low, parent, visited, ap, graph, ref time);
+
+                        low[u] = Math.Min(low[u], low[v]);
+
+                        if (parent[u] == -1 && children > 1)
+                            ap[u] = true;
+
+                        if (parent[u] != -1 && low[v] >= disc[u])
+                            ap[u] = true;
+                    }
+                    else if (v != parent[u])
+                    {
+                        low[u] = Math.Min(low[u], disc[v]);
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region 1.11 LCA
+        public class LCA
+        {
+            private int n;
+            private int logn;
+            private List<List<int>> tree;
+            private int[] depth;
+            private int[,] parent;
+
+            public LCA(List<List<int>> tree, int root)
+            {
+                this.tree = tree;
+                n = tree.Count;
+                logn = (int)Math.Ceiling(Math.Log(n, 2)) + 1;
+                depth = new int[n];
+                parent = new int[n, logn];
+
+                for (int i = 0; i < n; i++)
+                    for (int j = 0; j < logn; j++)
+                        parent[i, j] = -1;
+
+                DFS(root, -1, 0);
+
+                for (int j = 1; j < logn; j++)
+                    for (int i = 0; i < n; i++)
+                        if (parent[i, j - 1] != -1)
+                            parent[i, j] = parent[parent[i, j - 1], j - 1];
+            }
+
+            private void DFS(int u, int p, int d)
+            {
+                depth[u] = d;
+                parent[u, 0] = p;
+
+                foreach (int v in tree[u])
+                {
+                    if (v != p)
+                        DFS(v, u, d + 1);
+                }
+            }
+
+            public int FindLCA(int u, int v)
+            {
+                if (depth[u] < depth[v])
+                {
+                    int temp = u;
+                    u = v;
+                    v = temp;
+                }
+
+                int diff = depth[u] - depth[v];
+                for (int i = 0; i < logn; i++)
+                    if ((diff & (1 << i)) != 0)
+                        u = parent[u, i];
+
+                if (u == v) return u;
+
+                for (int i = logn - 1; i >= 0; i--)
+                {
+                    if (parent[u, i] != -1 && parent[u, i] != parent[v, i])
+                    {
+                        u = parent[u, i];
+                        v = parent[v, i];
+                    }
+                }
+
+                return parent[u, 0];
+            }
+        }
+        #endregion
+
+        #region 1.12 Алгоритм Крускала
+        public static class Kruskal
+        {
+            public struct Edge
+            {
+                public int from;
+                public int to;
+                public int weight;
+
+                public Edge(int from, int to, int weight)
+                {
+                    this.from = from;
+                    this.to = to;
+                    this.weight = weight;
+                }
+            }
+
+            public static (int cost, List<Edge> edges) FindMST(int n, List<Edge> edges)
+            {
+                edges.Sort((a, b) => a.weight.CompareTo(b.weight));
+                var uf = new UnionFind(n);
+                List<Edge> mst = new List<Edge>();
+                int cost = 0;
+
+                foreach (var edge in edges)
+                {
+                    if (uf.Union(edge.from, edge.to))
+                    {
+                        mst.Add(edge);
+                        cost += edge.weight;
+                        if (mst.Count == n - 1)
+                            break;
+                    }
+                }
+
+                return (cost, mst);
+            }
+        }
+        #endregion
+
+        #region 1.13 Алгоритм Косарайю
+        public static class Kosaraju
+        {
+            public static List<List<int>> FindSCC(int n, List<List<int>> graph)
+            {
+                // Первый проход DFS для порядка завершения
+                bool[] visited = new bool[n];
+                Stack<int> stack = new Stack<int>();
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (!visited[i])
+                        FirstDFS(i, graph, visited, stack);
+                }
+
+                // Транспонирование графа
+                var transposed = TransposeGraph(n, graph);
+
+                // Второй проход DFS в порядке стека
+                ArrayFill(visited, false);
+                List<List<int>> scc = new List<List<int>>();
+
+                while (stack.Count > 0)
+                {
+                    int node = stack.Pop();
+                    if (!visited[node])
+                    {
+                        List<int> component = new List<int>();
+                        SecondDFS(node, transposed, visited, component);
+                        scc.Add(component);
+                    }
+                }
+
+                return scc;
+            }
+
+            private static void ArrayFill(bool[] array, bool value)
+            {
+                for (int i = 0; i < array.Length; i++)
+                {
+                    array[i] = value;
+                }
+            }
+
+            private static void FirstDFS(int u, List<List<int>> graph, bool[] visited, Stack<int> stack)
+            {
+                visited[u] = true;
+                foreach (int v in graph[u])
+                {
+                    if (!visited[v])
+                        FirstDFS(v, graph, visited, stack);
+                }
+                stack.Push(u);
+            }
+
+            private static List<List<int>> TransposeGraph(int n, List<List<int>> graph)
+            {
+                var transposed = new List<List<int>>();
+                for (int i = 0; i < n; i++)
+                    transposed.Add(new List<int>());
+
+                for (int u = 0; u < n; u++)
+                {
+                    foreach (int v in graph[u])
+                    {
+                        transposed[v].Add(u);
+                    }
+                }
+
+                return transposed;
+            }
+
+            private static void SecondDFS(int u, List<List<int>> graph, bool[] visited, List<int> component)
+            {
+                visited[u] = true;
+                component.Add(u);
+                foreach (int v in graph[u])
+                {
+                    if (!visited[v])
+                        SecondDFS(v, graph, visited, component);
+                }
+            }
+        }
+        #endregion
+
+        #region 1.14 TSP
+        public static class TSP
+        {
+            public static (int cost, List<int> path) Solve(int[,] graph)
+            {
+                int n = graph.GetLength(0);
+                int[,] dp = new int[1 << n, n];
+                int[,] parent = new int[1 << n, n];
+
+                for (int i = 0; i < (1 << n); i++)
+                    for (int j = 0; j < n; j++)
+                        dp[i, j] = int.MaxValue;
+
+                dp[1, 0] = 0;
+
+                for (int mask = 1; mask < (1 << n); mask++)
+                {
+                    for (int u = 0; u < n; u++)
+                    {
+                        if (dp[mask, u] == int.MaxValue) continue;
+
+                        for (int v = 0; v < n; v++)
+                        {
+                            if ((mask & (1 << v)) == 0 && graph[u, v] > 0)
+                            {
+                                int newMask = mask | (1 << v);
+                                int newCost = dp[mask, u] + graph[u, v];
+                                if (newCost < dp[newMask, v])
+                                {
+                                    dp[newMask, v] = newCost;
+                                    parent[newMask, v] = u;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Восстановление пути
+                int finalMask = (1 << n) - 1;
+                int minCost = int.MaxValue;
+                int last = -1;
+
+                for (int i = 0; i < n; i++)
+                {
+                    if (dp[finalMask, i] != int.MaxValue && graph[i, 0] > 0)
+                    {
+                        int cost = dp[finalMask, i] + graph[i, 0];
+                        if (cost < minCost)
+                        {
+                            minCost = cost;
+                            last = i;
+                        }
+                    }
+                }
+
+                List<int> path = new List<int>();
+                int current = last;
+                int currentMask = finalMask;
+
+                while (currentMask != 0)
+                {
+                    path.Add(current);
+                    int prev = parent[currentMask, current];
+                    currentMask ^= (1 << current);
+                    current = prev;
+                }
+                path.Add(0);
+                path.Reverse();
+
+                return (minCost, path);
+            }
+        }
+        #endregion
+
+        #region 1.15 Bellman-Ford
+        public static class BellmanFord
+        {
+            public struct Edge
+            {
+                public int from;
+                public int to;
+                public int weight;
+
+                public Edge(int from, int to, int weight)
+                {
+                    this.from = from;
+                    this.to = to;
+                    this.weight = weight;
+                }
+            }
+
+            public static (int[] distances, bool negativeCycle) FindShortestPaths(int n, List<Edge> edges, int source)
+            {
+                int[] dist = new int[n];
+                ArrayFill(dist, int.MaxValue);
+                dist[source] = 0;
+
+                for (int i = 0; i < n - 1; i++)
+                {
+                    foreach (var edge in edges)
+                    {
+                        if (dist[edge.from] != int.MaxValue && dist[edge.from] + edge.weight < dist[edge.to])
+                        {
+                            dist[edge.to] = dist[edge.from] + edge.weight;
+                        }
+                    }
+                }
+
+                // Проверка на отрицательные циклы
+                bool negativeCycle = false;
+                foreach (var edge in edges)
+                {
+                    if (dist[edge.from] != int.MaxValue && dist[edge.from] + edge.weight < dist[edge.to])
+                    {
+                        negativeCycle = true;
+                        break;
+                    }
+                }
+
+                return (dist, negativeCycle);
+            }
+
+            private static void ArrayFill(int[] array, int value)
+            {
+                for (int i = 0; i < array.Length; i++)
+                {
+                    array[i] = value;
+                }
+            }
+        }
+        #endregion
+
+        #region 1.17 KMP
+        public static class KMP
+        {
+            public static List<int> Search(string text, string pattern)
+            {
+                List<int> matches = new List<int>();
+                if (string.IsNullOrEmpty(pattern)) return matches;
+
+                int[] lps = ComputeLPS(pattern);
+                int i = 0, j = 0;
+
+                while (i < text.Length)
+                {
+                    if (text[i] == pattern[j])
+                    {
+                        i++;
+                        j++;
+                    }
+
+                    if (j == pattern.Length)
+                    {
+                        matches.Add(i - j);
+                        j = lps[j - 1];
+                    }
+                    else if (i < text.Length && text[i] != pattern[j])
+                    {
+                        if (j != 0)
+                            j = lps[j - 1];
+                        else
+                            i++;
+                    }
+                }
+
+                return matches;
+            }
+
+            private static int[] ComputeLPS(string pattern)
+            {
+                int[] lps = new int[pattern.Length];
+                int len = 0;
+                int i = 1;
+
+                while (i < pattern.Length)
+                {
+                    if (pattern[i] == pattern[len])
+                    {
+                        len++;
+                        lps[i] = len;
+                        i++;
+                    }
+                    else
+                    {
+                        if (len != 0)
+                        {
+                            len = lps[len - 1];
+                        }
+                        else
+                        {
+                            lps[i] = 0;
+                            i++;
+                        }
+                    }
+                }
+
+                return lps;
+            }
+        }
+        #endregion
+
+        #region 1.18 Rabin-Karp
+        public static class RabinKarp
+        {
+            private const int prime = 101;
+            private const int mod = 1000000007;
+
+            public static List<int> Search(string text, string pattern)
+            {
+                List<int> matches = new List<int>();
+                int n = text.Length;
+                int m = pattern.Length;
+                if (n < m) return matches;
+
+                long patternHash = CreateHash(pattern, m);
+                long textHash = CreateHash(text, m);
+
+                for (int i = 0; i <= n - m; i++)
+                {
+                    if (patternHash == textHash && CheckEqual(text, i, i + m - 1, pattern))
+                    {
+                        matches.Add(i);
+                    }
+
+                    if (i < n - m)
+                    {
+                        textHash = RecalculateHash(text, i, i + m, textHash, m);
+                    }
+                }
+
+                return matches;
+            }
+
+            private static long CreateHash(string str, int length)
+            {
+                long hash = 0;
+                for (int i = 0; i < length; i++)
+                {
+                    hash = (hash * prime + str[i]) % mod;
+                }
+                return hash;
+            }
+
+            private static long RecalculateHash(string str, int oldIndex, int newIndex, long oldHash, int patternLen)
+            {
+                long newHash = (oldHash - str[oldIndex] * Pow(prime, patternLen - 1)) % mod;
+                newHash = (newHash * prime + str[newIndex]) % mod;
+                return newHash < 0 ? newHash + mod : newHash;
+            }
+
+            private static long Pow(long baseValue, int exponent)
+            {
+                long result = 1;
+                for (int i = 0; i < exponent; i++)
+                {
+                    result = (result * baseValue) % mod;
+                }
+                return result;
+            }
+
+            private static bool CheckEqual(string text, int start, int end, string pattern)
+            {
+                if (end - start + 1 != pattern.Length) return false;
+                for (int i = 0; i < pattern.Length; i++)
+                {
+                    if (text[start + i] != pattern[i]) return false;
+                }
+                return true;
+            }
+        }
+        #endregion
+
+        #region 1.19 Внешняя сортировка
+        public static class ExternalSorter
+        {
+            public static void SortFile(string inputFile, string outputFile, int chunkSize)
+            {
+                // Разделение на отсортированные чанки
+                List<string> chunkFiles = new List<string>();
+                using (var reader = new StreamReader(inputFile))
+                {
+                    List<int> chunk = new List<int>();
+                    string line;
+                    int chunkCount = 0;
+
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (int.TryParse(line, out int number))
+                        {
+                            chunk.Add(number);
+                            if (chunk.Count >= chunkSize)
+                            {
+                                chunk.Sort();
+                                string chunkFile = $"chunk_{chunkCount++}.txt";
+                                File.WriteAllLines(chunkFile, chunk.Select(x => x.ToString()));
+                                chunkFiles.Add(chunkFile);
+                                chunk.Clear();
+                            }
+                        }
+                    }
+
+                    if (chunk.Count > 0)
+                    {
+                        chunk.Sort();
+                        string chunkFile = $"chunk_{chunkCount++}.txt";
+                        File.WriteAllLines(chunkFile, chunk.Select(x => x.ToString()));
+                        chunkFiles.Add(chunkFile);
+                    }
+                }
+
+                // Многофазное слияние
+                MergeChunks(chunkFiles, outputFile);
+
+                // Очистка временных файлов
+                foreach (string chunkFile in chunkFiles)
+                {
+                    if (File.Exists(chunkFile))
+                        File.Delete(chunkFile);
+                }
+            }
+
+            private static void MergeChunks(List<string> chunkFiles, string outputFile)
+            {
+                var readers = chunkFiles.Select(f => new StreamReader(f)).ToArray();
+                var heap = new PriorityQueue<(int value, int readerIndex), int>();
+
+                // Инициализация кучи
+                for (int i = 0; i < readers.Length; i++)
+                {
+                    string line = readers[i].ReadLine();
+                    if (line != null && int.TryParse(line, out int value))
+                    {
+                        heap.Enqueue((value, i), value);
+                    }
+                }
+
+                using (var writer = new StreamWriter(outputFile))
+                {
+                    while (heap.Count > 0)
+                    {
+                        var (value, readerIndex) = heap.Dequeue();
+                        writer.WriteLine(value);
+
+                        string line = readers[readerIndex].ReadLine();
+                        if (line != null && int.TryParse(line, out int nextValue))
+                        {
+                            heap.Enqueue((nextValue, readerIndex), nextValue);
+                        }
+                    }
+                }
+
+                foreach (var reader in readers)
+                {
+                    reader.Close();
+                }
+            }
+        }
+        #endregion
+
+        #region 1.20 Median Finder
+        public class MedianFinder
+        {
+            private PriorityQueue<int, int> maxHeap;
+            private PriorityQueue<int, int> minHeap;
+
+            public MedianFinder()
+            {
+                maxHeap = new PriorityQueue<int, int>();
+                minHeap = new PriorityQueue<int, int>();
+            }
+
+            public void AddNum(int num)
+            {
+                if (maxHeap.Count == 0 || num <= GetMaxHeapPeek())
+                {
+                    maxHeap.Enqueue(num, -num);
+                }
+                else
+                {
+                    minHeap.Enqueue(num, num);
+                }
+
+                if (maxHeap.Count > minHeap.Count + 1)
+                {
+                    var moved = maxHeap.Dequeue();
+                    minHeap.Enqueue(moved, moved);
+                }
+                else if (minHeap.Count > maxHeap.Count)
+                {
+                    var moved = minHeap.Dequeue();
+                    maxHeap.Enqueue(moved, -moved);
+                }
+            }
+
+            public double FindMedian()
+            {
+                if (maxHeap.Count == minHeap.Count)
+                {
+                    return (GetMaxHeapPeek() + minHeap.Peek()) / 2.0;
+                }
+                else
+                {
+                    return GetMaxHeapPeek();
+                }
+            }
+
+            private int GetMaxHeapPeek()
+            {
+                return maxHeap.Peek();
+            }
+        }
+        #endregion
+    }
+}
