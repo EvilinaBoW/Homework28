@@ -1,0 +1,894 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using static ConsoleApp5.Program.Program;
+
+namespace ConsoleApp5
+{
+    internal class Program
+    {
+        internal class Program
+        {
+            static void Main(string[] args)
+            {
+                Console.WriteLine("Продвинутое ООП - Реализация 20 паттернов");
+
+                // Демонстрация различных паттернов
+                TestObserverPattern();
+                TestDecoratorPattern();
+                TestStrategyPattern();
+                // Можно добавить вызовы других тестов...
+            }
+
+            #region 2.1: Паттерн Observer с обработкой исключений
+            static void TestObserverPattern()
+            {
+                var publisher = new EventPublisher();
+                var subscriber1 = new AdvancedSubscriber("Sub1");
+                var subscriber2 = new AdvancedSubscriber("Sub2");
+
+                publisher.Subscribe("event.type1", subscriber1);
+                publisher.Subscribe("event.type2", subscriber2);
+
+                publisher.Publish("event.type1", new EventData { Message = "Test Message" });
+            }
+
+            public class EventData
+            {
+                public string Message { get; set; }
+                public DateTime Timestamp { get; set; } = DateTime.Now;
+            }
+
+            public interface ISubscriber
+            {
+                string Name { get; }
+                Task HandleEventAsync(string eventType, EventData data);
+                SubscriberMetrics GetMetrics();
+            }
+
+            public class SubscriberMetrics
+            {
+                public int TotalEventsProcessed { get; set; }
+                public int FailedEvents { get; set; }
+                public double AverageProcessingTimeMs { get; set; }
+                public DateTime LastActivity { get; set; }
+            }
+
+            public class AdvancedSubscriber : ISubscriber
+            {
+                private readonly SubscriberMetrics _metrics = new SubscriberMetrics();
+                private readonly Random _random = new Random();
+
+                public string Name { get; }
+
+                public AdvancedSubscriber(string name) => Name = name;
+
+                public async Task HandleEventAsync(string eventType, EventData data)
+                {
+                    var stopwatch = Stopwatch.StartNew();
+
+                    try
+                    {
+                        // Имитация обработки с случайной задержкой
+                        await Task.Delay(_random.Next(50, 200));
+
+                        // Имитация случайных ошибок
+                        if (_random.Next(0, 10) == 0)
+                            throw new InvalidOperationException("Simulated processing error");
+
+                        Interlocked.Increment(ref _metrics.TotalEventsProcessed);
+                        Console.WriteLine($"{Name} processed event: {eventType} - {data.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.Increment(ref _metrics.FailedEvents);
+                        Console.WriteLine($"{Name} failed to process event: {ex.Message}");
+                        throw;
+                    }
+                    finally
+                    {
+                        stopwatch.Stop();
+                        _metrics.AverageProcessingTimeMs = (_metrics.AverageProcessingTimeMs + stopwatch.ElapsedMilliseconds) / 2;
+                        _metrics.LastActivity = DateTime.Now;
+                    }
+                }
+
+                public SubscriberMetrics GetMetrics() => _metrics;
+            }
+
+            public class EventPublisher
+            {
+                private readonly ConcurrentDictionary<string, List<ISubscriber>> _subscriptions =
+                    new ConcurrentDictionary<string, List<ISubscriber>>();
+                private readonly ConcurrentQueue<(string, EventData)> _deadLetterQueue =
+                    new ConcurrentQueue<(string, EventData)>();
+                private readonly object _lockObject = new object();
+
+                public void Subscribe(string eventType, ISubscriber subscriber)
+                {
+                    var subscribers = _subscriptions.GetOrAdd(eventType, _ => new List<ISubscriber>());
+                    lock (subscribers)
+                    {
+                        if (!subscribers.Contains(subscriber))
+                            subscribers.Add(subscriber);
+                    }
+                }
+
+                public void Unsubscribe(string eventType, ISubscriber subscriber)
+                {
+                    if (_subscriptions.TryGetValue(eventType, out var subscribers))
+                    {
+                        lock (subscribers)
+                        {
+                            subscribers.Remove(subscriber);
+                        }
+                    }
+                }
+
+                public async void Publish(string eventType, EventData data)
+                {
+                    if (_subscriptions.TryGetValue(eventType, out var subscribers))
+                    {
+                        var tasks = new List<Task>();
+
+                        foreach (var subscriber in subscribers.ToArray())
+                        {
+                            tasks.Add(Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    await subscriber.HandleEventAsync(eventType, data);
+                                }
+                                catch
+                                {
+                                    // Помещаем в очередь мертвых писем при ошибке
+                                    _deadLetterQueue.Enqueue((eventType, data));
+                                }
+                            }));
+                        }
+
+                        await Task.WhenAll(tasks);
+                    }
+                }
+            }
+            #endregion
+
+            #region 2.2: Паттерн Decorator для добавления функциональности
+            static void TestDecoratorPattern()
+            {
+                ICalculator calculator = new BasicCalculator();
+                calculator = new LoggingDecorator(calculator);
+                calculator = new CachingDecorator(calculator);
+                calculator = new ValidationDecorator(calculator);
+                calculator = new PerformanceDecorator(calculator);
+
+                var result = calculator.Add(5, 3);
+                Console.WriteLine($"Decorator Result: {result}");
+            }
+
+            public interface ICalculator
+            {
+                int Add(int a, int b);
+                int Multiply(int a, int b);
+            }
+
+            public class BasicCalculator : ICalculator
+            {
+                public int Add(int a, int b) => a + b;
+                public int Multiply(int a, int b) => a * b;
+            }
+
+            public abstract class CalculatorDecorator : ICalculator
+            {
+                protected ICalculator _calculator;
+
+                protected CalculatorDecorator(ICalculator calculator)
+                {
+                    _calculator = calculator;
+                }
+
+                public virtual int Add(int a, int b) => _calculator.Add(a, b);
+                public virtual int Multiply(int a, int b) => _calculator.Multiply(a, b);
+            }
+
+            public class LoggingDecorator : CalculatorDecorator
+            {
+                public LoggingDecorator(ICalculator calculator) : base(calculator) { }
+
+                public override int Add(int a, int b)
+                {
+                    Console.WriteLine($"Adding {a} and {b}");
+                    var result = base.Add(a, b);
+                    Console.WriteLine($"Result: {result}");
+                    return result;
+                }
+            }
+
+            public class CachingDecorator : CalculatorDecorator
+            {
+                private readonly Dictionary<string, int> _cache = new Dictionary<string, int>();
+
+                public CachingDecorator(ICalculator calculator) : base(calculator) { }
+
+                public override int Add(int a, int b)
+                {
+                    var key = $"Add_{a}_{b}";
+                    if (_cache.ContainsKey(key))
+                        return _cache[key];
+
+                    var result = base.Add(a, b);
+                    _cache[key] = result;
+                    return result;
+                }
+            }
+
+            public class ValidationDecorator : CalculatorDecorator
+            {
+                public ValidationDecorator(ICalculator calculator) : base(calculator) { }
+
+                public override int Add(int a, int b)
+                {
+                    if (a < 0 || b < 0)
+                        throw new ArgumentException("Values must be non-negative");
+
+                    return base.Add(a, b);
+                }
+            }
+
+            public class PerformanceDecorator : CalculatorDecorator
+            {
+                public PerformanceDecorator(ICalculator calculator) : base(calculator) { }
+
+                public override int Add(int a, int b)
+                {
+                    var stopwatch = Stopwatch.StartNew();
+                    var result = base.Add(a, b);
+                    stopwatch.Stop();
+                    Console.WriteLine($"Add operation took: {stopwatch.ElapsedMilliseconds}ms");
+                    return result;
+                }
+            }
+            #endregion
+
+            #region 2.3: Паттерн Strategy с динамическим выбором алгоритма
+            static void TestStrategyPattern()
+            {
+                var sorter = new DynamicSorter();
+
+                var smallData = Enumerable.Range(1, 100).Select(x => Guid.NewGuid()).ToArray();
+                var largeData = Enumerable.Range(1, 10000).Select(x => Guid.NewGuid()).ToArray();
+
+                sorter.Sort(smallData); // Выберет QuickSort
+                sorter.Sort(largeData); // Выберет MergeSort
+            }
+
+            public interface ISortStrategy<T>
+            {
+                void Sort(T[] array);
+                TimeSpan LastExecutionTime { get; }
+            }
+
+            public class QuickSortStrategy<T> : ISortStrategy<T> where T : IComparable<T>
+            {
+                public TimeSpan LastExecutionTime { get; private set; }
+
+                public void Sort(T[] array)
+                {
+                    var stopwatch = Stopwatch.StartNew();
+                    Array.Sort(array);
+                    stopwatch.Stop();
+                    LastExecutionTime = stopwatch.Elapsed;
+                }
+            }
+
+            public class MergeSortStrategy<T> : ISortStrategy<T> where T : IComparable<T>
+            {
+                public TimeSpan LastExecutionTime { get; private set; }
+
+                public void Sort(T[] array)
+                {
+                    var stopwatch = Stopwatch.StartNew();
+                    MergeSort(array, 0, array.Length - 1);
+                    stopwatch.Stop();
+                    LastExecutionTime = stopwatch.Elapsed;
+                }
+
+                private void MergeSort(T[] array, int left, int right)
+                {
+                    if (left < right)
+                    {
+                        int mid = (left + right) / 2;
+                        MergeSort(array, left, mid);
+                        MergeSort(array, mid + 1, right);
+                        Merge(array, left, mid, right);
+                    }
+                }
+
+                private void Merge(T[] array, int left, int mid, int right)
+                {
+                    // Реализация слияния
+                }
+            }
+
+            public class DynamicSorter<T> where T : IComparable<T>
+            {
+                private readonly Dictionary<string, ISortStrategy<T>> _strategies =
+                    new Dictionary<string, ISortStrategy<T>>();
+                private ISortStrategy<T> _currentStrategy;
+
+                public DynamicSorter()
+                {
+                    _strategies["quick"] = new QuickSortStrategy<T>();
+                    _strategies["merge"] = new MergeSortStrategy<T>();
+                    _currentStrategy = _strategies["quick"];
+                }
+
+                public void Sort(T[] array)
+                {
+                    // Динамический выбор стратегии на основе размера данных
+                    _currentStrategy = array.Length < 1000 ?
+                        _strategies["quick"] : _strategies["merge"];
+
+                    _currentStrategy.Sort(array);
+                    Console.WriteLine($"Used strategy for {array.Length} elements: {_currentStrategy.GetType().Name}");
+                }
+            }
+            #endregion
+
+            #region 2.4: Паттерн Factory с регистрацией типов
+            public interface IProduct
+            {
+                string Name { get; }
+                void Execute();
+            }
+
+            public class ProductA : IProduct
+            {
+                public string Name => "Product A";
+                public void Execute() => Console.WriteLine("Executing Product A");
+            }
+
+            public class ProductB : IProduct
+            {
+                public string Name => "Product B";
+                public void Execute() => Console.WriteLine("Executing Product B");
+            }
+
+            public class GenericFactory<T> where T : IProduct, new()
+            {
+                private static readonly ConcurrentDictionary<Type, Func<object>> _constructors =
+                    new ConcurrentDictionary<Type, Func<object>>();
+
+                public T Create()
+                {
+                    var type = typeof(T);
+                    var constructor = _constructors.GetOrAdd(type, t =>
+                        Expression.Lambda<Func<object>>(Expression.New(t)).Compile());
+
+                    return (T)constructor();
+                }
+            }
+
+            public class DynamicFactory
+            {
+                private readonly Dictionary<string, Type> _registeredTypes = new Dictionary<string, Type>();
+
+                public void RegisterType<T>(string key) where T : IProduct
+                {
+                    _registeredTypes[key] = typeof(T);
+                }
+
+                public IProduct Create(string key)
+                {
+                    if (_registeredTypes.TryGetValue(key, out var type))
+                    {
+                        return (IProduct)Activator.CreateInstance(type);
+                    }
+                    throw new ArgumentException($"Type with key '{key}' not registered");
+                }
+            }
+            #endregion
+
+            #region 2.5: Паттерн Builder с fluent interface
+            public class Computer
+            {
+                public string CPU { get; }
+                public string RAM { get; }
+                public string Storage { get; }
+                public string GPU { get; }
+
+                private Computer(string cpu, string ram, string storage, string gpu)
+                {
+                    CPU = cpu;
+                    RAM = ram;
+                    Storage = storage;
+                    GPU = gpu;
+                }
+
+                public class Builder
+                {
+                    private string _cpu;
+                    private string _ram;
+                    private string _storage;
+                    private string _gpu;
+
+                    public Builder SetCPU(string cpu)
+                    {
+                        if (string.IsNullOrEmpty(cpu))
+                            throw new ArgumentException("CPU cannot be null or empty");
+                        _cpu = cpu;
+                        return this;
+                    }
+
+                    public Builder SetRAM(string ram)
+                    {
+                        if (string.IsNullOrEmpty(ram))
+                            throw new ArgumentException("RAM cannot be null or empty");
+                        _ram = ram;
+                        return this;
+                    }
+
+                    public Builder SetStorage(string storage)
+                    {
+                        _storage = storage;
+                        return this;
+                    }
+
+                    public Builder SetGPU(string gpu)
+                    {
+                        _gpu = gpu;
+                        return this;
+                    }
+
+                    public Computer Build()
+                    {
+                        if (string.IsNullOrEmpty(_cpu) || string.IsNullOrEmpty(_ram))
+                            throw new InvalidOperationException("CPU and RAM are required");
+
+                        return new Computer(_cpu, _ram, _storage, _gpu);
+                    }
+                }
+            }
+            #endregion
+
+            #region 2.6: Паттерн Proxy для ленивой загрузки
+            public interface IExpensiveResource
+            {
+                void Process();
+                string GetData();
+            }
+
+            public class RealExpensiveResource : IExpensiveResource
+            {
+                public RealExpensiveResource()
+                {
+                    // Имитация дорогой инициализации
+                    Thread.Sleep(2000);
+                    Console.WriteLine("Real resource initialized");
+                }
+
+                public void Process() => Console.WriteLine("Processing in real resource");
+                public string GetData() => "Real data";
+            }
+
+            public class LazyProxy : IExpensiveResource
+            {
+                private Lazy<RealExpensiveResource> _realResource;
+                private readonly object _lockObject = new object();
+
+                public LazyProxy()
+                {
+                    _realResource = new Lazy<RealExpensiveResource>(() => new RealExpensiveResource());
+                }
+
+                public void Process()
+                {
+                    _realResource.Value.Process();
+                }
+
+                public string GetData()
+                {
+                    return _realResource.Value.GetData();
+                }
+            }
+            #endregion
+
+            #region 2.7: Паттерн Chain of Responsibility
+            public abstract class Handler
+            {
+                protected Handler _nextHandler;
+
+                public Handler SetNext(Handler handler)
+                {
+                    _nextHandler = handler;
+                    return handler;
+                }
+
+                public virtual void HandleRequest(Request request)
+                {
+                    _nextHandler?.HandleRequest(request);
+                }
+            }
+
+            public class Request
+            {
+                public string Type { get; set; }
+                public string Data { get; set; }
+                public bool IsProcessed { get; set; }
+            }
+
+            public class AuthenticationHandler : Handler
+            {
+                public override void HandleRequest(Request request)
+                {
+                    Console.WriteLine("AuthenticationHandler processing request");
+                    // Логика аутентификации
+                    base.HandleRequest(request);
+                }
+            }
+
+            public class ValidationHandler : Handler
+            {
+                public override void HandleRequest(Request request)
+                {
+                    Console.WriteLine("ValidationHandler processing request");
+                    // Логика валидации
+                    base.HandleRequest(request);
+                }
+            }
+
+            public class ProcessingHandler : Handler
+            {
+                public override void HandleRequest(Request request)
+                {
+                    Console.WriteLine("ProcessingHandler processing request");
+                    request.IsProcessed = true;
+                    base.HandleRequest(request);
+                }
+            }
+            #endregion
+
+            #region 2.8: Паттерн Command для отмены/повтора операций
+            public interface ICommand
+            {
+                void Execute();
+                void Undo();
+            }
+
+            public class TextEditor
+            {
+                private string _text = "";
+                private readonly Stack<ICommand> _undoStack = new Stack<ICommand>();
+                private readonly Stack<ICommand> _redoStack = new Stack<ICommand>();
+
+                public void ExecuteCommand(ICommand command)
+                {
+                    command.Execute();
+                    _undoStack.Push(command);
+                    _redoStack.Clear();
+                }
+
+                public void Undo()
+                {
+                    if (_undoStack.Count > 0)
+                    {
+                        var command = _undoStack.Pop();
+                        command.Undo();
+                        _redoStack.Push(command);
+                    }
+                }
+
+                public void Redo()
+                {
+                    if (_redoStack.Count > 0)
+                    {
+                        var command = _redoStack.Pop();
+                        command.Execute();
+                        _undoStack.Push(command);
+                    }
+                }
+
+                public string Text
+                {
+                    get => _text;
+                    set => _text = value;
+                }
+            }
+
+            public class AddTextCommand : ICommand
+            {
+                private readonly TextEditor _editor;
+                private readonly string _textToAdd;
+                private string _previousText;
+
+                public AddTextCommand(TextEditor editor, string text)
+                {
+                    _editor = editor;
+                    _textToAdd = text;
+                }
+
+                public void Execute()
+                {
+                    _previousText = _editor.Text;
+                    _editor.Text += _textToAdd;
+                }
+
+                public void Undo()
+                {
+                    _editor.Text = _previousText;
+                }
+            }
+            #endregion
+
+            #region 2.9-2.20: Реализации остальных паттернов (сокращено для краткости)
+
+            // 2.9: Adapter Pattern
+            public interface IDataProvider
+            {
+                string GetData();
+            }
+
+            public class CsvAdapter : IDataProvider
+            {
+                private readonly CsvFile _csvFile;
+                public CsvAdapter(string filePath) => _csvFile = new CsvFile(filePath);
+                public string GetData() => _csvFile.ReadCsv();
+            }
+
+            public class CsvFile
+            {
+                private readonly string _filePath;
+                public CsvFile(string filePath) => _filePath = filePath;
+                public string ReadCsv() => "CSV data";
+            }
+
+            // 2.10: Facade Pattern
+            public class ComplexSystemFacade
+            {
+                private readonly SubsystemA _a = new SubsystemA();
+                private readonly SubsystemB _b = new SubsystemB();
+                private readonly SubsystemC _c = new SubsystemC();
+
+                public void SimpleOperation()
+                {
+                    _a.OperationA();
+                    _b.OperationB();
+                    _c.OperationC();
+                }
+            }
+
+            public class SubsystemA { public void OperationA() => Console.WriteLine("Subsystem A"); }
+            public class SubsystemB { public void OperationB() => Console.WriteLine("Subsystem B"); }
+            public class SubsystemC { public void OperationC() => Console.WriteLine("Subsystem C"); }
+
+            // 2.11: Singleton Pattern
+            public sealed class ThreadSafeSingleton
+            {
+                private static readonly Lazy<ThreadSafeSingleton> _instance =
+                    new Lazy<ThreadSafeSingleton>(() => new ThreadSafeSingleton());
+
+                public static ThreadSafeSingleton Instance => _instance.Value;
+
+                private ThreadSafeSingleton() { }
+
+                public void DoWork() => Console.WriteLine("Singleton working");
+            }
+
+            // 2.12: Template Method Pattern
+            public abstract class DataProcessor
+            {
+                public void Process()
+                {
+                    ReadData();
+                    TransformData();
+                    SaveData();
+                    if (NeedsNotification())
+                        SendNotification();
+                }
+
+                protected abstract void ReadData();
+                protected abstract void TransformData();
+                protected virtual void SaveData() => Console.WriteLine("Saving data...");
+                protected virtual bool NeedsNotification() => false;
+                protected virtual void SendNotification() { }
+            }
+
+            // 2.13: State Pattern
+            public interface IState
+            {
+                void Handle(Context context);
+            }
+
+            public class Context
+            {
+                public IState State { get; set; }
+                public Context(IState state) => State = state;
+                public void Request() => State.Handle(this);
+            }
+
+            public class ConcreteStateA : IState
+            {
+                public void Handle(Context context)
+                {
+                    Console.WriteLine("State A handling");
+                    context.State = new ConcreteStateB();
+                }
+            }
+
+            public class ConcreteStateB : IState
+            {
+                public void Handle(Context context)
+                {
+                    Console.WriteLine("State B handling");
+                    context.State = new ConcreteStateA();
+                }
+            }
+
+            // 2.14: Memento Pattern
+            public class Originator
+            {
+                public string State { get; set; }
+
+                public Memento CreateMemento() => new Memento(State);
+                public void SetMemento(Memento memento) => State = memento.State;
+            }
+
+            public class Memento
+            {
+                public string State { get; }
+                public Memento(string state) => State = state;
+            }
+
+            public class Caretaker
+            {
+                private readonly Stack<Memento> _mementos = new Stack<Memento>();
+                public void SaveState(Originator originator) => _mementos.Push(originator.CreateMemento());
+                public void RestoreState(Originator originator) => originator.SetMemento(_mementos.Pop());
+            }
+
+            // 2.15: Flyweight Pattern
+            public class FlyweightFactory
+            {
+                private readonly Dictionary<string, IFlyweight> _flyweights = new Dictionary<string, IFlyweight>();
+
+                public IFlyweight GetFlyweight(string key)
+                {
+                    if (!_flyweights.ContainsKey(key))
+                        _flyweights[key] = new ConcreteFlyweight(key);
+
+                    return _flyweights[key];
+                }
+            }
+
+            public interface IFlyweight { void Operation(); }
+            public class ConcreteFlyweight : IFlyweight
+            {
+                private readonly string _intrinsicState;
+                public ConcreteFlyweight(string intrinsicState) => _intrinsicState = intrinsicState;
+                public void Operation() => Console.WriteLine($"Flyweight: {_intrinsicState}");
+            }
+
+            // 2.16: Interpreter Pattern (базовая реализация)
+            public interface IExpression { int Interpret(); }
+            public class NumberExpression : IExpression
+            {
+                private readonly int _number;
+                public NumberExpression(int number) => _number = number;
+                public int Interpret() => _number;
+            }
+
+            public class AddExpression : IExpression
+            {
+                private readonly IExpression _left;
+                private readonly IExpression _right;
+                public AddExpression(IExpression left, IExpression right)
+                {
+                    _left = left;
+                    _right = right;
+                }
+                public int Interpret() => _left.Interpret() + _right.Interpret();
+            }
+
+            // 2.17: Composite Pattern
+            public abstract class Component
+            {
+                public abstract void Operation();
+                public virtual void Add(Component component) => throw new NotImplementedException();
+                public virtual void Remove(Component component) => throw new NotImplementedException();
+            }
+
+            public class Composite : Component
+            {
+                private readonly List<Component> _children = new List<Component>();
+
+                public override void Operation()
+                {
+                    foreach (var child in _children)
+                        child.Operation();
+                }
+
+                public override void Add(Component component) => _children.Add(component);
+                public override void Remove(Component component) => _children.Remove(component);
+            }
+
+            public class Leaf : Component
+            {
+                public override void Operation() => Console.WriteLine("Leaf operation");
+            }
+
+            // 2.18: Visitor Pattern
+            public interface IVisitor { void Visit(ConcreteElementA element); void Visit(ConcreteElementB element); }
+            public interface IElement { void Accept(IVisitor visitor); }
+
+            public class ConcreteElementA : IElement
+            {
+                public void Accept(IVisitor visitor) => visitor.Visit(this);
+            }
+
+            public class ConcreteVisitor : IVisitor
+            {
+                public void Visit(ConcreteElementA element) => Console.WriteLine("Visited Element A");
+                public void Visit(ConcreteElementB element) => Console.WriteLine("Visited Element B");
+            }
+
+            // 2.19: SOLID Principles (примеры)
+            // Single Responsibility
+            public class UserService
+            {
+                public void RegisterUser(string username, string email) { /* Регистрация пользователя */ }
+            }
+
+            public class EmailService
+            {
+                public void SendEmail(string to, string subject, string body) { /* Отправка email */ }
+            }
+
+            // Open/Closed
+            public abstract class Shape
+            {
+                public abstract double Area();
+            }
+
+            public class Circle : Shape
+            {
+                public double Radius { get; set; }
+                public override double Area() => Math.PI * Radius * Radius;
+            }
+
+            // 2.20: Repository Pattern
+            public interface IRepository<T>
+            {
+                T GetById(int id);
+                void Add(T entity);
+                void Update(T entity);
+                void Delete(T entity);
+                IEnumerable<T> GetAll();
+            }
+
+            public class UserRepository : IRepository<User>
+            {
+                private readonly List<User> _users = new List<User>();
+
+                public User GetById(int id) => _users.FirstOrDefault(u => u.Id == id);
+                public void Add(User entity) => _users.Add(entity);
+                public void Update(User entity) { /* Обновление */ }
+                public void Delete(User entity) => _users.Remove(entity);
+                public IEnumerable<User> GetAll() => _users;
+            }
+
+            public class User
+            {
+                public int Id { get; set; }
+                public string Name { get; set; }
+                public string Email { get; set; }
+            }
+
+            #endregion
+        }
+    }
+}
