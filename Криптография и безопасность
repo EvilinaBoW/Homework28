@@ -1,0 +1,1325 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Security;
+using System.Security.Cryptography;
+using System.Text;
+using System.Web;
+
+// 6.1: Хеширование паролей с солью
+public class PasswordHasher
+{
+    public string HashPassword(string password, string algorithm = "pbkdf2")
+    {
+        switch (algorithm.ToLower())
+        {
+            case "pbkdf2":
+                return HashWithPBKDF2(password);
+            case "bcrypt":
+                return HashWithBCrypt(password);
+            default:
+                return HashWithPBKDF2(password);
+        }
+    }
+
+    private string HashWithPBKDF2(string password)
+    {
+        byte[] salt = new byte[32];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(salt);
+        }
+
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 100000, HashAlgorithmName.SHA256);
+        byte[] hash = pbkdf2.GetBytes(32);
+
+        return $"pbkdf2_sha256$100000${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
+    }
+
+    private string HashWithBCrypt(string password)
+    {
+        // Упрощенная реализация BCrypt (в production используйте библиотеку BCrypt.Net)
+        byte[] salt = new byte[16];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(salt);
+
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 10000, HashAlgorithmName.SHA256);
+        byte[] hash = pbkdf2.GetBytes(24);
+
+        return $"bcrypt$10000${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
+    }
+
+    public bool VerifyPassword(string password, string hashedPassword)
+    {
+        if (hashedPassword.StartsWith("pbkdf2_sha256"))
+        {
+            return VerifyPBKDF2(password, hashedPassword);
+        }
+        else if (hashedPassword.StartsWith("bcrypt"))
+        {
+            return VerifyBCrypt(password, hashedPassword);
+        }
+
+        return false;
+    }
+
+    private bool VerifyPBKDF2(string password, string hashedPassword)
+    {
+        string[] parts = hashedPassword.Split('$');
+        byte[] salt = Convert.FromBase64String(parts[2]);
+        byte[] storedHash = Convert.FromBase64String(parts[3]);
+
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 100000, HashAlgorithmName.SHA256);
+        byte[] computedHash = pbkdf2.GetBytes(32);
+
+        return CryptographicOperations.FixedTimeEquals(storedHash, computedHash);
+    }
+
+    private bool VerifyBCrypt(string password, string hashedPassword)
+    {
+        string[] parts = hashedPassword.Split('$');
+        byte[] salt = Convert.FromBase64String(parts[2]);
+        byte[] storedHash = Convert.FromBase64String(parts[3]);
+
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 10000, HashAlgorithmName.SHA256);
+        byte[] computedHash = pbkdf2.GetBytes(24);
+
+        return CryptographicOperations.FixedTimeEquals(storedHash, computedHash);
+    }
+}
+
+// 6.2: Асимметричное шифрование (RSA)
+public class RSAEncryption
+{
+    private RSAParameters _privateKey;
+    private RSAParameters _publicKey;
+
+    public void GenerateKeys(int keySize = 4096)
+    {
+        using var rsa = RSA.Create(keySize);
+        _privateKey = rsa.ExportParameters(true);
+        _publicKey = rsa.ExportParameters(false);
+    }
+
+    public string Encrypt(string data, RSAParameters? publicKey = null)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(publicKey ?? _publicKey);
+
+        byte[] dataBytes = Encoding.UTF8.GetBytes(data);
+        byte[] encryptedBytes = rsa.Encrypt(dataBytes, RSAEncryptionPadding.OaepSHA256);
+
+        return Convert.ToBase64String(encryptedBytes);
+    }
+
+    public string Decrypt(string encryptedData)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(_privateKey);
+
+        byte[] encryptedBytes = Convert.FromBase64String(encryptedData);
+        byte[] decryptedBytes = rsa.Decrypt(encryptedBytes, RSAEncryptionPadding.OaepSHA256);
+
+        return Encoding.UTF8.GetString(decryptedBytes);
+    }
+
+    public string SignData(string data)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(_privateKey);
+
+        byte[] dataBytes = Encoding.UTF8.GetBytes(data);
+        byte[] signature = rsa.SignData(dataBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+
+        return Convert.ToBase64String(signature);
+    }
+
+    public bool VerifySignature(string data, string signature, RSAParameters? publicKey = null)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(publicKey ?? _publicKey);
+
+        byte[] dataBytes = Encoding.UTF8.GetBytes(data);
+        byte[] signatureBytes = Convert.FromBase64String(signature);
+
+        return rsa.VerifyData(dataBytes, signatureBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+    }
+
+    public string ExportPublicKey()
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(_publicKey);
+        return Convert.ToBase64String(rsa.ExportSubjectPublicKeyInfo());
+    }
+
+    public void ImportPublicKey(string publicKey)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKey), out _);
+        _publicKey = rsa.ExportParameters(false);
+    }
+}
+
+// 6.3: Симметричное шифрование (AES)
+public class AESEncryption
+{
+    private readonly byte[] _key;
+
+    public AESEncryption(byte[] key = null)
+    {
+        _key = key ?? GenerateRandomKey();
+    }
+
+    public static byte[] GenerateRandomKey()
+    {
+        byte[] key = new byte[32]; // 256-bit
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(key);
+        return key;
+    }
+
+    public string Encrypt(string plaintext, string mode = "CBC")
+    {
+        switch (mode.ToUpper())
+        {
+            case "CBC":
+                return EncryptCBC(plaintext);
+            case "GCM":
+                return EncryptGCM(plaintext);
+            default:
+                return EncryptCBC(plaintext);
+        }
+    }
+
+    private string EncryptCBC(string plaintext)
+    {
+        using var aes = Aes.Create();
+        aes.Key = _key;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+        aes.GenerateIV();
+
+        using var encryptor = aes.CreateEncryptor();
+        byte[] plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+        byte[] ciphertext = encryptor.TransformFinalBlock(plaintextBytes, 0, plaintextBytes.Length);
+
+        // Compute HMAC for authentication
+        using var hmac = new HMACSHA256(_key);
+        byte[] toHash = Combine(aes.IV, ciphertext);
+        byte[] mac = hmac.ComputeHash(toHash);
+
+        var result = new Dictionary<string, string>
+        {
+            ["iv"] = Convert.ToBase64String(aes.IV),
+            ["ciphertext"] = Convert.ToBase64String(ciphertext),
+            ["mac"] = Convert.ToBase64String(mac),
+            ["mode"] = "CBC"
+        };
+
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(SerializeDictionary(result)));
+    }
+
+    private string EncryptGCM(string plaintext)
+    {
+        // Для .NET Core 3.0+ используйте AesGcm
+        // Здесь упрощенная реализация с AES-CBC + HMAC
+        return EncryptCBC(plaintext);
+    }
+
+    public string Decrypt(string encryptedData)
+    {
+        string json = Encoding.UTF8.GetString(Convert.FromBase64String(encryptedData));
+        var data = DeserializeDictionary(json);
+        string mode = data["mode"];
+
+        return mode.ToUpper() switch
+        {
+            "CBC" => DecryptCBC(data),
+            "GCM" => DecryptGCM(data),
+            _ => throw new ArgumentException("Unsupported mode")
+        };
+    }
+
+    private string DecryptCBC(Dictionary<string, string> data)
+    {
+        byte[] iv = Convert.FromBase64String(data["iv"]);
+        byte[] ciphertext = Convert.FromBase64String(data["ciphertext"]);
+        byte[] mac = Convert.FromBase64String(data["mac"]);
+
+        // Verify HMAC
+        using var hmac = new HMACSHA256(_key);
+        byte[] toHash = Combine(iv, ciphertext);
+        byte[] computedMac = hmac.ComputeHash(toHash);
+
+        if (!CryptographicOperations.FixedTimeEquals(computedMac, mac))
+            throw new SecurityException("HMAC verification failed");
+
+        using var aes = Aes.Create();
+        aes.Key = _key;
+        aes.IV = iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+
+        using var decryptor = aes.CreateDecryptor();
+        byte[] plaintext = decryptor.TransformFinalBlock(ciphertext, 0, ciphertext.Length);
+        return Encoding.UTF8.GetString(plaintext);
+    }
+
+    private string DecryptGCM(Dictionary<string, string> data)
+    {
+        // Упрощенная реализация
+        return DecryptCBC(data);
+    }
+
+    private static byte[] Combine(params byte[][] arrays)
+    {
+        byte[] result = new byte[arrays.Sum(a => a.Length)];
+        int offset = 0;
+        foreach (byte[] array in arrays)
+        {
+            Buffer.BlockCopy(array, 0, result, offset, array.Length);
+            offset += array.Length;
+        }
+        return result;
+    }
+
+    private string SerializeDictionary(Dictionary<string, string> dict)
+    {
+        return string.Join("&", dict.Select(kv => $"{WebUtility.UrlEncode(kv.Key)}={WebUtility.UrlEncode(kv.Value)}"));
+    }
+
+    private Dictionary<string, string> DeserializeDictionary(string data)
+    {
+        return data.Split('&')
+            .Select(part => part.Split('='))
+            .Where(parts => parts.Length == 2)
+            .ToDictionary(
+                parts => WebUtility.UrlDecode(parts[0]),
+                parts => WebUtility.UrlDecode(parts[1])
+            );
+    }
+}
+
+// 6.4: Обмен ключами Диффи-Хеллмана
+public class DiffieHellmanKeyExchange
+{
+    private ECDiffieHellman _dh;
+    private byte[] _publicKey;
+
+    public DiffieHellmanKeyExchange()
+    {
+        _dh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP384);
+        _publicKey = _dh.ExportSubjectPublicKeyInfo();
+    }
+
+    public byte[] PublicKey => _publicKey;
+
+    public byte[] DeriveSharedSecret(byte[] otherPartyPublicKey)
+    {
+        using var otherParty = ECDiffieHellman.Create();
+        otherParty.ImportSubjectPublicKeyInfo(otherPartyPublicKey, out _);
+
+        byte[] sharedSecret = _dh.DeriveKeyFromHash(otherParty.PublicKey, HashAlgorithmName.SHA256);
+
+        // Use HKDF for key derivation
+        return DeriveKeyHKDF(sharedSecret, 32);
+    }
+
+    public void GenerateNewKeyPair()
+    {
+        _dh.Dispose();
+        _dh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP384);
+        _publicKey = _dh.ExportSubjectPublicKeyInfo();
+    }
+
+    private byte[] DeriveKeyHKDF(byte[] ikm, int outputLength, byte[] salt = null, byte[] info = null)
+    {
+        using var hmac = new HMACSHA256(salt ?? new byte[0]);
+        byte[] prk = hmac.ComputeHash(ikm);
+
+        byte[] result = new byte[outputLength];
+        byte[] t = new byte[0];
+        int done = 0;
+
+        using var hmac2 = new HMACSHA256(prk);
+        for (int i = 1; done < outputLength; i++)
+        {
+            hmac2.Initialize();
+            hmac2.TransformBlock(t, 0, t.Length, t, 0);
+            if (info != null)
+                hmac2.TransformBlock(info, 0, info.Length, info, 0);
+
+            byte[] counter = new[] { (byte)i };
+            hmac2.TransformBlock(counter, 0, 1, counter, 0);
+            hmac2.TransformFinalBlock(new byte[0], 0, 0);
+
+            t = hmac2.Hash;
+            int toCopy = Math.Min(outputLength - done, t.Length);
+            Buffer.BlockCopy(t, 0, result, done, toCopy);
+            done += toCopy;
+        }
+
+        return result;
+    }
+}
+
+// 6.5: Цифровая подпись с сертификатами
+public class DigitalSignatureSystem
+{
+    private readonly Dictionary<string, Certificate> _certificates = new();
+    private readonly HashSet<string> _revokedCertificates = new();
+
+    public class Certificate
+    {
+        public string Id { get; set; }
+        public string Subject { get; set; }
+        public RSAParameters PublicKey { get; set; }
+        public RSAParameters PrivateKey { get; set; }
+        public DateTime IssuedAt { get; set; }
+        public DateTime ExpiresAt { get; set; }
+        public string Issuer { get; set; }
+    }
+
+    public Certificate GenerateCertificate(string subject, int validityDays = 365)
+    {
+        using var rsa = RSA.Create(2048);
+        string certId = ComputeSha256Hash(subject)[..16];
+
+        var certificate = new Certificate
+        {
+            Id = certId,
+            Subject = subject,
+            PublicKey = rsa.ExportParameters(false),
+            PrivateKey = rsa.ExportParameters(true),
+            IssuedAt = DateTime.Now,
+            ExpiresAt = DateTime.Now.AddDays(validityDays),
+            Issuer = "Custom CA"
+        };
+
+        _certificates[certId] = certificate;
+        return certificate;
+    }
+
+    public string SignData(string data, string certId)
+    {
+        if (_revokedCertificates.Contains(certId))
+            throw new InvalidOperationException("Certificate revoked");
+
+        if (!_certificates.TryGetValue(certId, out var cert))
+            throw new ArgumentException("Certificate not found");
+
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(cert.PrivateKey);
+
+        byte[] dataBytes = Encoding.UTF8.GetBytes(data);
+        byte[] signature = rsa.SignData(dataBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+
+        return Convert.ToBase64String(signature);
+    }
+
+    public bool VerifySignature(string data, string signature, string certId)
+    {
+        if (_revokedCertificates.Contains(certId))
+            return false;
+
+        if (!_certificates.TryGetValue(certId, out var cert) || cert.ExpiresAt < DateTime.Now)
+            return false;
+
+        try
+        {
+            using var rsa = RSA.Create();
+            rsa.ImportParameters(cert.PublicKey);
+
+            byte[] dataBytes = Encoding.UTF8.GetBytes(data);
+            byte[] signatureBytes = Convert.FromBase64String(signature);
+
+            return rsa.VerifyData(dataBytes, signatureBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public void RevokeCertificate(string certId)
+    {
+        _revokedCertificates.Add(certId);
+    }
+
+    public Dictionary<string, object> GetCertificateStatus(string certId)
+    {
+        if (!_certificates.TryGetValue(certId, out var cert))
+            return new Dictionary<string, object> { { "status", "not_found" } };
+
+        string status = "valid";
+        if (_revokedCertificates.Contains(certId))
+            status = "revoked";
+        else if (cert.ExpiresAt < DateTime.Now)
+            status = "expired";
+
+        return new Dictionary<string, object>
+        {
+            ["status"] = status,
+            ["subject"] = cert.Subject,
+            ["issuer"] = cert.Issuer,
+            ["expires"] = cert.ExpiresAt.ToString("O")
+        };
+    }
+
+    private static string ComputeSha256Hash(string input)
+    {
+        using var sha256 = SHA256.Create();
+        byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return BitConverter.ToString(bytes).Replace("-", "").ToLower();
+    }
+}
+
+// 6.6: Хеширование для целостности данных
+public class HashValidator
+{
+    public static string ComputeHash(byte[] data, string algorithm = "sha256")
+    {
+        return algorithm.ToLower() switch
+        {
+            "md5" => ComputeMD5(data),
+            "sha1" => ComputeSHA1(data),
+            "sha256" => ComputeSHA256(data),
+            "sha512" => ComputeSHA512(data),
+            _ => throw new ArgumentException("Unsupported algorithm")
+        };
+    }
+
+    public static string ComputeFileHash(string filePath, string algorithm = "sha256", int bufferSize = 8192)
+    {
+        using var stream = File.OpenRead(filePath);
+        using var hashAlgorithm = GetHashAlgorithm(algorithm);
+
+        byte[] buffer = new byte[bufferSize];
+        int bytesRead;
+
+        while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            hashAlgorithm.TransformBlock(buffer, 0, bytesRead, buffer, 0);
+        }
+
+        hashAlgorithm.TransformFinalBlock(buffer, 0, 0);
+        return BitConverter.ToString(hashAlgorithm.Hash).Replace("-", "").ToLower();
+    }
+
+    public static bool VerifyHash(byte[] data, string expectedHash, string algorithm = "sha256")
+    {
+        string computedHash = ComputeHash(data, algorithm);
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(computedHash),
+            Encoding.UTF8.GetBytes(expectedHash));
+    }
+
+    public static string ComputeHMAC(byte[] data, byte[] key, string algorithm = "sha256")
+    {
+        return algorithm.ToLower() switch
+        {
+            "sha256" => ComputeHMACSHA256(data, key),
+            "sha512" => ComputeHMACSHA512(data, key),
+            _ => throw new ArgumentException("Unsupported HMAC algorithm")
+        };
+    }
+
+    private static string ComputeMD5(byte[] data) => BitConverter.ToString(MD5.Create().ComputeHash(data)).Replace("-", "").ToLower();
+    private static string ComputeSHA1(byte[] data) => BitConverter.ToString(SHA1.Create().ComputeHash(data)).Replace("-", "").ToLower();
+    private static string ComputeSHA256(byte[] data) => BitConverter.ToString(SHA256.Create().ComputeHash(data)).Replace("-", "").ToLower();
+    private static string ComputeSHA512(byte[] data) => BitConverter.ToString(SHA512.Create().ComputeHash(data)).Replace("-", "").ToLower();
+    private static string ComputeHMACSHA256(byte[] data, byte[] key) => BitConverter.ToString(new HMACSHA256(key).ComputeHash(data)).Replace("-", "").ToLower();
+    private static string ComputeHMACSHA512(byte[] data, byte[] key) => BitConverter.ToString(new HMACSHA512(key).ComputeHash(data)).Replace("-", "").ToLower();
+
+    private static HashAlgorithm GetHashAlgorithm(string algorithm)
+    {
+        return algorithm.ToLower() switch
+        {
+            "md5" => MD5.Create(),
+            "sha1" => SHA1.Create(),
+            "sha256" => SHA256.Create(),
+            "sha512" => SHA512.Create(),
+            _ => throw new ArgumentException("Unsupported algorithm")
+        };
+    }
+}
+
+// 6.7: Генератор случайных чисел (CSPRNG)
+public class CSPRNG
+{
+    private byte[] _seed;
+    private int _reseedCounter;
+    private const int MaxReseed = 1000;
+
+    public byte[] GenerateSeed(int length = 32)
+    {
+        _seed = new byte[length];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(_seed);
+        _reseedCounter = 0;
+        return _seed;
+    }
+
+    public void Reseed(byte[] additionalEntropy = null)
+    {
+        if (_reseedCounter >= MaxReseed)
+        {
+            GenerateSeed();
+            return;
+        }
+
+        byte[] newEntropy = new byte[32];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(newEntropy);
+
+        if (additionalEntropy != null)
+        {
+            newEntropy = Combine(newEntropy, additionalEntropy);
+        }
+
+        if (_seed != null)
+        {
+            using var sha256 = SHA256.Create();
+            _seed = sha256.ComputeHash(Combine(_seed, newEntropy));
+        }
+        else
+        {
+            _seed = newEntropy;
+        }
+
+        _reseedCounter++;
+    }
+
+    public byte[] GenerateRandomBytes(int length)
+    {
+        if (_seed == null || _reseedCounter >= MaxReseed)
+            GenerateSeed();
+
+        List<byte> result = new();
+        using var hmac = new HMACSHA256(_seed);
+
+        while (result.Count < length)
+        {
+            byte[] counter = BitConverter.GetBytes(result.Count);
+            byte[] input = Combine(new byte[] { 0x01 }, _seed, counter);
+            byte[] block = hmac.ComputeHash(input);
+            result.AddRange(block);
+            _reseedCounter++;
+        }
+
+        if (_reseedCounter % 100 == 0)
+            Reseed();
+
+        return result.Take(length).ToArray();
+    }
+
+    public int GenerateRandomNumber(int minVal = 0, int maxVal = int.MaxValue)
+    {
+        int range = maxVal - minVal + 1;
+        byte[] randomBytes = GenerateRandomBytes(4);
+        uint randomInt = BitConverter.ToUInt32(randomBytes, 0);
+        return minVal + (int)(randomInt % range);
+    }
+
+    public Dictionary<string, object> RunNISTTests(byte[] data)
+    {
+        if (data.Length < 100)
+            return new Dictionary<string, object> { ["error"] = "Insufficient data" };
+
+        string bits = string.Concat(data.Select(b => Convert.ToString(b, 2).PadLeft(8, '0')));
+
+        // Frequency test
+        int onesCount = bits.Count(c => c == '1');
+        double frequency = (double)onesCount / bits.Length;
+
+        // Runs test
+        List<int> runs = new();
+        int currentRun = 1;
+        for (int i = 1; i < bits.Length; i++)
+        {
+            if (bits[i] == bits[i - 1])
+                currentRun++;
+            else
+            {
+                runs.Add(currentRun);
+                currentRun = 1;
+            }
+        }
+        runs.Add(currentRun);
+        double avgRunLength = runs.Average();
+
+        return new Dictionary<string, object>
+        {
+            ["frequency_test"] = Math.Abs(frequency - 0.5) < 0.01,
+            ["runs_test"] = avgRunLength > 0.5 && avgRunLength < 1.5,
+            ["total_bits"] = bits.Length,
+            ["ones_ratio"] = frequency
+        };
+    }
+
+    private static byte[] Combine(params byte[][] arrays)
+    {
+        byte[] result = new byte[arrays.Sum(a => a.Length)];
+        int offset = 0;
+        foreach (byte[] array in arrays)
+        {
+            Buffer.BlockCopy(array, 0, result, offset, array.Length);
+            offset += array.Length;
+        }
+        return result;
+    }
+}
+
+// 6.8: Защита от инъекций и XSS
+public class SecuritySanitizer
+{
+    private readonly List<string> _suspiciousPatterns = new()
+    {
+        @"<script.*?>.*?</script>",
+        @"javascript:",
+        @"on\w+=",
+        @"<iframe.*?>",
+        @"union\s+select",
+        @"drop\s+table",
+        @"exec\s*\(",
+        @"<.*?style.*?>"
+    };
+
+    private readonly string _logFile = "security_incidents.log";
+
+    public string SanitizeInput(string input, string inputType = "text")
+    {
+        return inputType.ToLower() switch
+        {
+            "html" => SanitizeHtml(input),
+            "sql" => SanitizeSql(input),
+            "url" => SanitizeUrl(input),
+            _ => SanitizeText(input)
+        };
+    }
+
+    private string SanitizeHtml(string html)
+    {
+        return WebUtility.HtmlEncode(html);
+    }
+
+    private string SanitizeSql(string sqlInput)
+    {
+        // Remove SQL comments
+        string sanitized = System.Text.RegularExpressions.Regex.Replace(sqlInput, @"--.*$", "",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"/\*.*?\*/", "",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        // Escape single quotes
+        return sanitized.Replace("'", "''");
+    }
+
+    private string SanitizeUrl(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+        {
+            if (uri.Scheme != "http" && uri.Scheme != "https")
+            {
+                LogIncident($"Invalid URL scheme: {url}");
+                return string.Empty;
+            }
+        }
+        return url;
+    }
+
+    private string SanitizeText(string text)
+    {
+        // Remove control characters except tab, newline, carriage return
+        return new string(text.Where(c => c >= 32 || c == '\t' || c == '\n' || c == '\r').ToArray());
+    }
+
+    public bool DetectInjection(string input)
+    {
+        string inputLower = input.ToLower();
+
+        foreach (string pattern in _suspiciousPatterns)
+        {
+            if (System.Text.RegularExpressions.Regex.IsMatch(inputLower, pattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                LogIncident($"Injection pattern detected: {pattern} in {input[..Math.Min(100, input.Length)]}");
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public string CreateParameterizedQuery(string queryTemplate, Dictionary<string, object> parameters)
+    {
+        var sanitizedParams = new Dictionary<string, object>();
+
+        foreach (var param in parameters)
+        {
+            if (param.Value is string stringValue)
+            {
+                sanitizedParams[param.Key] = SanitizeInput(stringValue, "sql");
+            }
+            else
+            {
+                sanitizedParams[param.Key] = param.Value;
+            }
+        }
+
+        // In real implementation, use proper parameterized queries with database library
+        string result = queryTemplate;
+        foreach (var param in sanitizedParams)
+        {
+            result = result.Replace($"{{{param.Key}}}", param.Value.ToString());
+        }
+
+        return result;
+    }
+
+    public string GenerateCsrfToken()
+    {
+        byte[] tokenBytes = new byte[32];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(tokenBytes);
+        return Convert.ToBase64String(tokenBytes);
+    }
+
+    public bool VerifyCsrfToken(string token, string expectedToken)
+    {
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(token),
+            Encoding.UTF8.GetBytes(expectedToken));
+    }
+
+    private void LogIncident(string incident)
+    {
+        string timestamp = DateTime.Now.ToString("O");
+        string logEntry = $"[{timestamp}] SECURITY: {incident}\n";
+        try
+        {
+            File.AppendAllText(_logFile, logEntry, Encoding.UTF8);
+        }
+        catch
+        {
+            // Ignore logging errors
+        }
+    }
+}
+
+// 6.9: OAuth 2.0 аутентификация
+public class OAuth2Server
+{
+    private readonly Dictionary<string, ClientInfo> _clients = new();
+    private readonly Dictionary<string, AuthorizationCode> _authorizationCodes = new();
+    private readonly Dictionary<string, TokenInfo> _accessTokens = new();
+    private readonly Dictionary<string, RefreshTokenInfo> _refreshTokens = new();
+    private readonly Dictionary<string, RateLimitInfo> _rateLimits = new();
+
+    private class ClientInfo
+    {
+        public string ClientSecret { get; set; }
+        public string RedirectUri { get; set; }
+        public List<string> Scopes { get; set; }
+    }
+
+    private class AuthorizationCode
+    {
+        public string ClientId { get; set; }
+        public string UserId { get; set; }
+        public string Scope { get; set; }
+        public DateTime ExpiresAt { get; set; }
+        public bool Used { get; set; }
+    }
+
+    public class TokenInfo
+    {
+        public string ClientId { get; set; }
+        public string UserId { get; set; }
+        public string Scope { get; set; }
+        public DateTime ExpiresAt { get; set; }
+    }
+
+    private class RefreshTokenInfo
+    {
+        public string ClientId { get; set; }
+        public string UserId { get; set; }
+        public string AccessToken { get; set; }
+    }
+
+    private class RateLimitInfo
+    {
+        public int Count { get; set; }
+        public DateTime WindowStart { get; set; }
+    }
+
+    public void RegisterClient(string clientId, string clientSecret, string redirectUri, List<string> scopes)
+    {
+        _clients[clientId] = new ClientInfo
+        {
+            ClientSecret = clientSecret,
+            RedirectUri = redirectUri,
+            Scopes = scopes
+        };
+    }
+
+    public string AuthorizeClient(string clientId, string responseType, string redirectUri,
+                                string scope, string state, string userId)
+    {
+        if (!_clients.ContainsKey(clientId))
+            throw new ArgumentException("Invalid client");
+
+        if (_clients[clientId].RedirectUri != redirectUri)
+            throw new ArgumentException("Redirect URI mismatch");
+
+        string authCode = GenerateRandomString(32);
+        _authorizationCodes[authCode] = new AuthorizationCode
+        {
+            ClientId = clientId,
+            UserId = userId,
+            Scope = scope,
+            ExpiresAt = DateTime.Now.AddMinutes(10),
+            Used = false
+        };
+
+        return $"{redirectUri}?code={authCode}&state={state}";
+    }
+
+    public Dictionary<string, object> GenerateToken(string clientId, string clientSecret, string grantType,
+                                                  string code = null, string refreshToken = null)
+    {
+        if (!_clients.ContainsKey(clientId) || _clients[clientId].ClientSecret != clientSecret)
+            throw new ArgumentException("Invalid client credentials");
+
+        return grantType.ToLower() switch
+        {
+            "authorization_code" => HandleAuthorizationCode(clientId, code),
+            "refresh_token" => HandleRefreshToken(clientId, refreshToken),
+            _ => throw new ArgumentException("Unsupported grant type")
+        };
+    }
+
+    private Dictionary<string, object> HandleAuthorizationCode(string clientId, string code)
+    {
+        if (!_authorizationCodes.TryGetValue(code, out var authData) ||
+            authData.Used || authData.ExpiresAt < DateTime.Now ||
+            authData.ClientId != clientId)
+            throw new ArgumentException("Invalid authorization code");
+
+        authData.Used = true;
+
+        string accessToken = GenerateRandomString(48);
+        string refreshToken = GenerateRandomString(48);
+
+        _accessTokens[accessToken] = new TokenInfo
+        {
+            ClientId = clientId,
+            UserId = authData.UserId,
+            Scope = authData.Scope,
+            ExpiresAt = DateTime.Now.AddHours(1)
+        };
+
+        _refreshTokens[refreshToken] = new RefreshTokenInfo
+        {
+            ClientId = clientId,
+            UserId = authData.UserId,
+            AccessToken = accessToken
+        };
+
+        return new Dictionary<string, object>
+        {
+            ["access_token"] = accessToken,
+            ["token_type"] = "Bearer",
+            ["expires_in"] = 3600,
+            ["refresh_token"] = refreshToken,
+            ["scope"] = authData.Scope
+        };
+    }
+
+    public TokenInfo ValidateToken(string accessToken, List<string> requiredScopes = null)
+    {
+        if (!_accessTokens.TryGetValue(accessToken, out var tokenData) ||
+            tokenData.ExpiresAt < DateTime.Now)
+            return null;
+
+        if (requiredScopes != null)
+        {
+            var tokenScopes = tokenData.Scope.Split(' ').ToList();
+            if (requiredScopes.Any(scope => !tokenScopes.Contains(scope)))
+                return null;
+        }
+
+        return tokenData;
+    }
+
+    public bool CheckRateLimit(string clientId, string endpoint)
+    {
+        string key = $"{clientId}:{endpoint}";
+        DateTime now = DateTime.Now;
+
+        if (!_rateLimits.TryGetValue(key, out var limitData))
+        {
+            _rateLimits[key] = new RateLimitInfo { Count = 1, WindowStart = now };
+            return true;
+        }
+
+        if (now - limitData.WindowStart > TimeSpan.FromMinutes(1))
+        {
+            limitData.Count = 1;
+            limitData.WindowStart = now;
+            return true;
+        }
+
+        if (limitData.Count >= 100)
+            return false;
+
+        limitData.Count++;
+        return true;
+    }
+
+    private Dictionary<string, object> HandleRefreshToken(string clientId, string refreshToken)
+    {
+        if (!_refreshTokens.TryGetValue(refreshToken, out var refreshData) ||
+            refreshData.ClientId != clientId)
+            throw new ArgumentException("Invalid refresh token");
+
+        string newAccessToken = GenerateRandomString(48);
+        var accessData = _accessTokens[refreshData.AccessToken];
+
+        _accessTokens[newAccessToken] = new TokenInfo
+        {
+            ClientId = clientId,
+            UserId = accessData.UserId,
+            Scope = accessData.Scope,
+            ExpiresAt = DateTime.Now.AddHours(1)
+        };
+
+        refreshData.AccessToken = newAccessToken;
+
+        return new Dictionary<string, object>
+        {
+            ["access_token"] = newAccessToken,
+            ["token_type"] = "Bearer",
+            ["expires_in"] = 3600,
+            ["scope"] = accessData.Scope
+        };
+    }
+
+    private static string GenerateRandomString(int length)
+    {
+        byte[] bytes = new byte[length];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(bytes);
+        return Convert.ToBase64String(bytes).Replace("+", "").Replace("/", "").Replace("=", "")[..length];
+    }
+}
+
+// 6.10: Защита от DDoS атак
+public class DDoSProtection
+{
+    private readonly Dictionary<string, List<DateTime>> _ipRequests = new();
+    private readonly HashSet<string> _suspiciousIps = new();
+    private readonly HashSet<string> _requestFingerprints = new();
+    private readonly HashSet<string> _captchaRequired = new();
+    private const int AnomalyThreshold = 100;
+    private readonly Dictionary<string, DateTime> _fingerprintTimestamps = new();
+
+    public class ProtectionResult
+    {
+        public bool Allowed { get; set; }
+        public bool CaptchaRequired { get; set; }
+        public string Reason { get; set; }
+    }
+
+    public ProtectionResult CheckRequest(string ip, string userAgent, string path, Dictionary<string, string> headers)
+    {
+        var result = new ProtectionResult
+        {
+            Allowed = true,
+            CaptchaRequired = false,
+            Reason = null
+        };
+
+        if (_suspiciousIps.Contains(ip))
+        {
+            result.Allowed = false;
+            result.Reason = "suspicious_ip";
+            return result;
+        }
+
+        if (!CheckRateLimit(ip))
+        {
+            _suspiciousIps.Add(ip);
+            result.Allowed = false;
+            result.Reason = "rate_limit_exceeded";
+            return result;
+        }
+
+        string fingerprint = CreateRequestFingerprint(ip, userAgent, path, headers);
+        if (IsDuplicateRequest(fingerprint))
+        {
+            result.Allowed = false;
+            result.Reason = "duplicate_request";
+            return result;
+        }
+
+        if (DetectAnomalies(ip, path, headers))
+        {
+            _captchaRequired.Add(ip);
+            result.CaptchaRequired = true;
+            result.Reason = "suspicious_activity";
+        }
+
+        return result;
+    }
+
+    private bool CheckRateLimit(string ip)
+    {
+        DateTime now = DateTime.Now;
+
+        if (!_ipRequests.ContainsKey(ip))
+        {
+            _ipRequests[ip] = new List<DateTime> { now };
+            return true;
+        }
+
+        // Clean old requests
+        _ipRequests[ip] = _ipRequests[ip].Where(t => now - t < TimeSpan.FromMinutes(1)).ToList();
+
+        if (_ipRequests[ip].Count >= AnomalyThreshold)
+            return false;
+
+        _ipRequests[ip].Add(now);
+        return true;
+    }
+
+    private string CreateRequestFingerprint(string ip, string userAgent, string path, Dictionary<string, string> headers)
+    {
+        string fingerprintData = $"{ip}:{userAgent}:{path}";
+
+        string[] importantHeaders = { "accept", "accept-language", "accept-encoding" };
+        foreach (string header in importantHeaders)
+        {
+            if (headers.TryGetValue(header, out string value))
+                fingerprintData += $":{value}";
+        }
+
+        using var sha256 = SHA256.Create();
+        byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(fingerprintData));
+        return BitConverter.ToString(hash).Replace("-", "").ToLower();
+    }
+
+    private bool IsDuplicateRequest(string fingerprint, int windowSeconds = 5)
+    {
+        DateTime currentTime = DateTime.Now;
+
+        // Clean old fingerprints
+        var expired = _fingerprintTimestamps.Where(kv => currentTime - kv.Value > TimeSpan.FromSeconds(windowSeconds))
+                                           .Select(kv => kv.Key).ToList();
+        foreach (string key in expired)
+        {
+            _fingerprintTimestamps.Remove(key);
+            _requestFingerprints.Remove(key);
+        }
+
+        if (_requestFingerprints.Contains(fingerprint))
+            return true;
+
+        _requestFingerprints.Add(fingerprint);
+        _fingerprintTimestamps[fingerprint] = currentTime;
+        return false;
+    }
+
+    private bool DetectAnomalies(string ip, string path, Dictionary<string, string> headers)
+    {
+        int anomaliesDetected = 0;
+
+        // Check user agent
+        if (!headers.TryGetValue("user-agent", out string userAgent) || string.IsNullOrEmpty(userAgent) ||
+            userAgent.ToLower().Contains("bot"))
+        {
+            anomaliesDetected++;
+        }
+
+        // Check suspicious paths
+        string[] suspiciousPaths = { "/admin", "/phpmyadmin", "/wp-admin", "/.env" };
+        if (suspiciousPaths.Any(p => path.ToLower().StartsWith(p)))
+        {
+            anomaliesDetected++;
+        }
+
+        // Check request frequency
+        if (_ipRequests.ContainsKey(ip))
+        {
+            DateTime now = DateTime.Now;
+            int recentRequests = _ipRequests[ip].Count(t => now - t < TimeSpan.FromSeconds(10));
+            if (recentRequests > 50)
+            {
+                anomaliesDetected++;
+            }
+        }
+
+        return anomaliesDetected >= 2;
+    }
+
+    public bool VerifyCaptcha(string ip, string captchaResponse)
+    {
+        // Simplified CAPTCHA verification
+        if (!string.IsNullOrEmpty(captchaResponse) && captchaResponse.Length > 3)
+        {
+            _captchaRequired.Remove(ip);
+            return true;
+        }
+        return false;
+    }
+
+    public void RemoveFromBlacklist(string ip)
+    {
+        _suspiciousIps.Remove(ip);
+        _captchaRequired.Remove(ip);
+    }
+
+    public Dictionary<string, object> GetProtectionStats()
+    {
+        return new Dictionary<string, object>
+        {
+            ["blocked_ips"] = _suspiciousIps.Count,
+            ["captcha_required"] = _captchaRequired.Count,
+            ["total_tracked_ips"] = _ipRequests.Count,
+            ["unique_fingerprints"] = _requestFingerprints.Count
+        };
+    }
+}
+
+// Демонстрация работы
+public class Program
+{
+    public static void Main()
+    {
+        DemonstrateAllSystems();
+    }
+
+    public static void DemonstrateAllSystems()
+    {
+        Console.WriteLine("=".PadRight(60, '='));
+        Console.WriteLine("ДЕМОНСТРАЦИЯ СИСТЕМЫ КРИПТОГРАФИИ И БЕЗОПАСНОСТИ");
+        Console.WriteLine("=".PadRight(60, '='));
+
+        // 6.1: Хеширование паролей
+        Console.WriteLine("\n1. ХЕШИРОВАНИЕ ПАРОЛЕЙ");
+        var hasher = new PasswordHasher();
+        string password = "MySecurePassword123";
+        string hashed = hasher.HashPassword(password);
+        bool verified = hasher.VerifyPassword(password, hashed);
+        Console.WriteLine($"Пароль: {password}");
+        Console.WriteLine($"Хеш: {hashed[..50]}...");
+        Console.WriteLine($"Верификация: {verified}");
+
+        // 6.2: RSA шифрование
+        Console.WriteLine("\n2. RSA ШИФРОВАНИЕ");
+        var rsaCrypto = new RSAEncryption();
+        rsaCrypto.GenerateKeys(2048);
+        string message = "Секретное сообщение для RSA";
+        string encrypted = rsaCrypto.Encrypt(message);
+        string decrypted = rsaCrypto.Decrypt(encrypted);
+        string signature = rsaCrypto.SignData(message);
+        bool sigVerified = rsaCrypto.VerifySignature(message, signature);
+        Console.WriteLine($"Сообщение: {message}");
+        Console.WriteLine($"Зашифровано: {encrypted[..50]}...");
+        Console.WriteLine($"Расшифровано: {decrypted}");
+        Console.WriteLine($"Подпись верифицирована: {sigVerified}");
+
+        // 6.3: AES шифрование
+        Console.WriteLine("\n3. AES ШИФРОВАНИЕ");
+        var aesCrypto = new AESEncryption();
+        string text = "Текст для симметричного шифрования";
+        string encryptedAes = aesCrypto.Encrypt(text, "CBC");
+        string decryptedAes = aesCrypto.Decrypt(encryptedAes);
+        Console.WriteLine($"Исходный текст: {text}");
+        Console.WriteLine($"Расшифрованный: {decryptedAes}");
+
+        // 6.4: Диффи-Хеллман
+        Console.WriteLine("\n4. ОБМЕН КЛЮЧАМИ ДИФФИ-ХЕЛЛМАН");
+        var alice = new DiffieHellmanKeyExchange();
+        var bob = new DiffieHellmanKeyExchange();
+
+        byte[] aliceSecret = alice.DeriveSharedSecret(bob.PublicKey);
+        byte[] bobSecret = bob.DeriveSharedSecret(alice.PublicKey);
+
+        Console.WriteLine($"Секрет Алисы: {BitConverter.ToString(aliceSecret)[..40]}...");
+        Console.WriteLine($"Секрет Боба: {BitConverter.ToString(bobSecret)[..40]}...");
+        Console.WriteLine($"Секреты совпадают: {aliceSecret.SequenceEqual(bobSecret)}");
+
+        // 6.5: Цифровые подписи
+        Console.WriteLine("\n5. ЦИФРОВЫЕ ПОДПИСИ С СЕРТИФИКАТАМИ");
+        var certSystem = new DigitalSignatureSystem();
+        var certificate = certSystem.GenerateCertificate("user@example.com");
+        string data = "Важные данные для подписи";
+        string certSignature = certSystem.SignData(data, certificate.Id);
+        bool certVerified = certSystem.VerifySignature(data, certSignature, certificate.Id);
+        Console.WriteLine($"Данные: {data}");
+        Console.WriteLine($"Подпись: {certSignature[..50]}...");
+        Console.WriteLine($"Верификация: {certVerified}");
+
+        // 6.6: Хеширование для целостности
+        Console.WriteLine("\n6. ПРОВЕРКА ЦЕЛОСТНОСТИ ДАННЫХ");
+        byte[] testData = Encoding.UTF8.GetBytes("Test data for integrity check");
+        string hashValue = HashValidator.ComputeHash(testData, "sha256");
+        string hmacValue = HashValidator.ComputeHMAC(testData, Encoding.UTF8.GetBytes("secret_key"));
+        bool integrityVerified = HashValidator.VerifyHash(testData, hashValue);
+        Console.WriteLine($"Данные: {Encoding.UTF8.GetString(testData)}");
+        Console.WriteLine($"SHA256: {hashValue}");
+        Console.WriteLine($"HMAC: {hmacValue}");
+        Console.WriteLine($"Целостность проверена: {integrityVerified}");
+
+        // 6.7: CSPRNG
+        Console.WriteLine("\n7. КРИПТОГРАФИЧЕСКИ СТОЙКИЙ ГСЧ");
+        var csprng = new CSPRNG();
+        byte[] randomBytes = csprng.GenerateRandomBytes(32);
+        int randomNum = csprng.GenerateRandomNumber(1, 100);
+        var testResults = csprng.RunNISTTests(randomBytes);
+        Console.WriteLine($"Случайные байты: {BitConverter.ToString(randomBytes)[..40]}...");
+        Console.WriteLine($"Случайное число: {randomNum}");
+        Console.WriteLine($"Статистические тесты: {string.Join(", ", testResults.Select(kv => $"{kv.Key}: {kv.Value}"))}");
+
+        // 6.8: Защита от инъекций
+        Console.WriteLine("\n8. ЗАЩИТА ОТ ИНЪЕКЦИЙ И XSS");
+        var sanitizer = new SecuritySanitizer();
+        string maliciousInput = "<script>alert('XSS')</script> OR 1=1";
+        string cleanInput = sanitizer.SanitizeInput(maliciousInput, "html");
+        bool injectionDetected = sanitizer.DetectInjection(maliciousInput);
+        string csrfToken = sanitizer.GenerateCsrfToken();
+        Console.WriteLine($"Входные данные: {maliciousInput}");
+        Console.WriteLine($"Очищенные данные: {cleanInput}");
+        Console.WriteLine($"Обнаружена инъекция: {injectionDetected}");
+        Console.WriteLine($"CSRF токен: {csrfToken[..20]}...");
+
+        // 6.9: OAuth 2.0
+        Console.WriteLine("\n9. OAUTH 2.0 АУТЕНТИФИКАЦИЯ");
+        var oauthServer = new OAuth2Server();
+        oauthServer.RegisterClient("client123", "secret123", "https://client.com/callback",
+            new List<string> { "read", "write" });
+
+        // 6.10: Защита от DDoS
+        Console.WriteLine("\n10. ЗАЩИТА ОТ DDoS АТАК");
+        var ddosProtection = new DDoSProtection();
+
+        for (int i = 0; i < 5; i++)
+        {
+            var result = ddosProtection.CheckRequest("192.168.1.100", "Mozilla/5.0", "/api/data",
+                new Dictionary<string, string>());
+            Console.WriteLine($"Запрос {i + 1}: {(result.Allowed ? "Разрешен" : "Блокирован")} - {result.Reason}");
+        }
+
+        var stats = ddosProtection.GetProtectionStats();
+        Console.WriteLine($"Статистика защиты: {string.Join(", ", stats.Select(kv => $"{kv.Key}: {kv.Value}"))}");
+
+        Console.WriteLine("\n" + "=".PadRight(60, '='));
+        Console.WriteLine("ДЕМОНСТРАЦИЯ ЗАВЕРШЕНА");
+        Console.WriteLine("=".PadRight(60, '='));
+
+        Console.ReadLine();
+    }
+}
