@@ -1,0 +1,1699 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace StringAlgorithms
+{
+    // 4.1: ПОСТРОЕНИЕ СОБСТВЕННОГО РЕГУЛЯРНОГО ВЫРАЖЕНИЯ
+    public class RegexEngine
+    {
+        public static bool IsMatch(string text, string pattern)
+        {
+            return Match(text, pattern, 0, 0, new Dictionary<(int, int), bool>());
+        }
+
+        private static bool Match(string text, string pattern, int textIndex, int patternIndex, Dictionary<(int, int), bool> memo)
+        {
+            if (memo.ContainsKey((textIndex, patternIndex)))
+                return memo[(textIndex, patternIndex)];
+
+            // Если паттерн закончился
+            if (patternIndex >= pattern.Length)
+                return textIndex >= text.Length;
+
+            bool firstMatch = textIndex < text.Length &&
+                (pattern[patternIndex] == '.' || pattern[patternIndex] == text[textIndex]);
+
+            bool result;
+            if (patternIndex + 1 < pattern.Length && pattern[patternIndex + 1] == '*')
+            {
+                // Обработка *
+                result = Match(text, pattern, textIndex, patternIndex + 2, memo) ||
+                        (firstMatch && Match(text, pattern, textIndex + 1, patternIndex, memo));
+            }
+            else if (patternIndex + 1 < pattern.Length && pattern[patternIndex + 1] == '+')
+            {
+                // Обработка +
+                result = firstMatch && (Match(text, pattern, textIndex + 1, patternIndex, memo) ||
+                        Match(text, pattern, textIndex + 1, patternIndex + 2, memo));
+            }
+            else if (patternIndex + 1 < pattern.Length && pattern[patternIndex + 1] == '?')
+            {
+                // Обработка ?
+                result = Match(text, pattern, textIndex, patternIndex + 2, memo) ||
+                        (firstMatch && Match(text, pattern, textIndex + 1, patternIndex + 2, memo));
+            }
+            else if (pattern[patternIndex] == '[')
+            {
+                // Обработка классов символов
+                int end = pattern.IndexOf(']', patternIndex);
+                if (end == -1) throw new ArgumentException("Unclosed character class");
+
+                string charClass = pattern.Substring(patternIndex + 1, end - patternIndex - 1);
+                bool negated = charClass.StartsWith('^');
+                if (negated) charClass = charClass.Substring(1);
+
+                bool inClass = charClass.Contains(text[textIndex]) ||
+                              (charClass.Contains('.') && text[textIndex] != '\0');
+
+                result = (negated ? !inClass : inClass) &&
+                        Match(text, pattern, textIndex + 1, end + 1, memo);
+            }
+            else
+            {
+                // Обычный символ
+                result = firstMatch && Match(text, pattern, textIndex + 1, patternIndex + 1, memo);
+            }
+
+            memo[(textIndex, patternIndex)] = result;
+            return result;
+        }
+
+        public static List<string> FindAll(string text, string pattern)
+        {
+            var results = new List<string>();
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (IsMatch(text.Substring(i), pattern))
+                {
+                    // Находим полное совпадение
+                    int j = i;
+                    while (j < text.Length && IsMatch(text.Substring(i, j - i + 1), pattern))
+                    {
+                        j++;
+                    }
+                    results.Add(text.Substring(i, j - i - 1));
+                }
+            }
+            return results;
+        }
+    }
+
+    // 4.2: ПОИСК НАИБОЛЬШЕЙ ОБЩЕЙ ПОДПОСЛЕДОВАТЕЛЬНОСТИ (LCS)
+    public class LongestCommonSubsequence
+    {
+        public static string FindLCS(string s1, string s2)
+        {
+            int m = s1.Length, n = s2.Length;
+            var dp = new int[m + 1, n + 1];
+
+            // Заполнение DP таблицы
+            for (int i = 1; i <= m; i++)
+            {
+                for (int j = 1; j <= n; j++)
+                {
+                    if (s1[i - 1] == s2[j - 1])
+                        dp[i, j] = dp[i - 1, j - 1] + 1;
+                    else
+                        dp[i, j] = Math.Max(dp[i - 1, j], dp[i, j - 1]);
+                }
+            }
+
+            // Восстановление LCS
+            return BuildLCS(s1, s2, dp, m, n);
+        }
+
+        private static string BuildLCS(string s1, string s2, int[,] dp, int i, int j)
+        {
+            if (i == 0 || j == 0) return "";
+
+            if (s1[i - 1] == s2[j - 1])
+                return BuildLCS(s1, s2, dp, i - 1, j - 1) + s1[i - 1];
+
+            if (dp[i - 1, j] > dp[i, j - 1])
+                return BuildLCS(s1, s2, dp, i - 1, j);
+            else
+                return BuildLCS(s1, s2, dp, i, j - 1);
+        }
+
+        // Оптимизация памяти O(min(n,m))
+        public static string FindLCSOptimized(string s1, string s2)
+        {
+            if (s1.Length < s2.Length)
+                (s1, s2) = (s2, s1); // s1 всегда длиннее
+
+            var prev = new int[s2.Length + 1];
+            var curr = new int[s2.Length + 1];
+
+            for (int i = 1; i <= s1.Length; i++)
+            {
+                for (int j = 1; j <= s2.Length; j++)
+                {
+                    if (s1[i - 1] == s2[j - 1])
+                        curr[j] = prev[j - 1] + 1;
+                    else
+                        curr[j] = Math.Max(prev[j], curr[j - 1]);
+                }
+                (prev, curr) = (curr, prev);
+                Array.Clear(curr, 0, curr.Length);
+            }
+
+            return BuildLCSFromOptimized(s1, s2, prev);
+        }
+
+        private static string BuildLCSFromOptimized(string s1, string s2, int[] dp)
+        {
+            // Упрощенное восстановление (для демонстрации)
+            int i = s1.Length, j = s2.Length;
+            var result = new List<char>();
+
+            while (i > 0 && j > 0)
+            {
+                if (s1[i - 1] == s2[j - 1])
+                {
+                    result.Add(s1[i - 1]);
+                    i--; j--;
+                }
+                else if (dp[j] == (j > 0 ? dp[j - 1] : 0))
+                {
+                    j--;
+                }
+                else
+                {
+                    i--;
+                }
+            }
+
+            result.Reverse();
+            return new string(result.ToArray());
+        }
+
+        public static List<string> FindAllLCS(string s1, string s2)
+        {
+            var dp = new int[s1.Length + 1, s2.Length + 1];
+
+            for (int i = 1; i <= s1.Length; i++)
+            {
+                for (int j = 1; j <= s2.Length; j++)
+                {
+                    if (s1[i - 1] == s2[j - 1])
+                        dp[i, j] = dp[i - 1, j - 1] + 1;
+                    else
+                        dp[i, j] = Math.Max(dp[i - 1, j], dp[i, j - 1]);
+                }
+            }
+
+            return BuildAllLCS(s1, s2, dp, s1.Length, s2.Length);
+        }
+
+        private static List<string> BuildAllLCS(string s1, string s2, int[,] dp, int i, int j)
+        {
+            if (i == 0 || j == 0)
+                return new List<string> { "" };
+
+            if (s1[i - 1] == s2[j - 1])
+            {
+                var result = BuildAllLCS(s1, s2, dp, i - 1, j - 1);
+                return result.Select(s => s + s1[i - 1]).ToList();
+            }
+
+            var results = new List<string>();
+
+            if (dp[i - 1, j] >= dp[i, j - 1])
+                results.AddRange(BuildAllLCS(s1, s2, dp, i - 1, j));
+
+            if (dp[i, j - 1] >= dp[i - 1, j])
+                results.AddRange(BuildAllLCS(s1, s2, dp, i, j - 1));
+
+            return results.Distinct().ToList();
+        }
+    }
+
+    // 4.3: РАССТОЯНИЕ ЛЕВЕНШТЕЙНА С ВОССТАНОВЛЕНИЕМ ОПЕРАЦИЙ
+    public class LevenshteinDistance
+    {
+        public class EditOperation
+        {
+            public char Type { get; set; } // 'I' - insert, 'D' - delete, 'R' - replace, 'K' - keep
+            public char Char1 { get; set; }
+            public char Char2 { get; set; }
+            public int Position { get; set; }
+        }
+
+        public static (int distance, List<EditOperation> operations) Calculate(string s1, string s2)
+        {
+            int m = s1.Length, n = s2.Length;
+            var dp = new int[m + 1, n + 1];
+            var operations = new EditOperation[m + 1, n + 1];
+
+            // Инициализация
+            for (int i = 0; i <= m; i++)
+            {
+                dp[i, 0] = i;
+                operations[i, 0] = new EditOperation { Type = 'D', Char1 = i > 0 ? s1[i - 1] : '\0', Position = i };
+            }
+
+            for (int j = 0; j <= n; j++)
+            {
+                dp[0, j] = j;
+                operations[0, j] = new EditOperation { Type = 'I', Char2 = j > 0 ? s2[j - 1] : '\0', Position = j };
+            }
+
+            // Заполнение таблицы
+            for (int i = 1; i <= m; i++)
+            {
+                for (int j = 1; j <= n; j++)
+                {
+                    if (s1[i - 1] == s2[j - 1])
+                    {
+                        dp[i, j] = dp[i - 1, j - 1];
+                        operations[i, j] = new EditOperation { Type = 'K', Char1 = s1[i - 1], Position = i };
+                    }
+                    else
+                    {
+                        int delete = dp[i - 1, j] + 1;
+                        int insert = dp[i, j - 1] + 1;
+                        int replace = dp[i - 1, j - 1] + 1;
+
+                        dp[i, j] = Math.Min(Math.Min(delete, insert), replace);
+
+                        if (dp[i, j] == delete)
+                            operations[i, j] = new EditOperation { Type = 'D', Char1 = s1[i - 1], Position = i };
+                        else if (dp[i, j] == insert)
+                            operations[i, j] = new EditOperation { Type = 'I', Char2 = s2[j - 1], Position = i };
+                        else
+                            operations[i, j] = new EditOperation { Type = 'R', Char1 = s1[i - 1], Char2 = s2[j - 1], Position = i };
+                    }
+                }
+            }
+
+            // Восстановление операций
+            var operationList = new List<EditOperation>();
+            int x = m, y = n;
+
+            while (x > 0 || y > 0)
+            {
+                var op = operations[x, y];
+                operationList.Add(op);
+
+                switch (op.Type)
+                {
+                    case 'K':
+                    case 'R':
+                        x--; y--;
+                        break;
+                    case 'D':
+                        x--;
+                        break;
+                    case 'I':
+                        y--;
+                        break;
+                }
+            }
+
+            operationList.Reverse();
+            return (dp[m, n], operationList);
+        }
+
+        public static string VisualizeTransformations(string s1, string s2)
+        {
+            var (distance, operations) = Calculate(s1, s2);
+            var result = new StringBuilder();
+
+            result.AppendLine($"Distance: {distance}");
+            result.AppendLine($"From: {s1}");
+            result.AppendLine($"To: {s2}");
+            result.AppendLine("Operations:");
+
+            foreach (var op in operations)
+            {
+                switch (op.Type)
+                {
+                    case 'K':
+                        result.AppendLine($"  Keep '{op.Char1}' at position {op.Position}");
+                        break;
+                    case 'R':
+                        result.AppendLine($"  Replace '{op.Char1}' with '{op.Char2}' at position {op.Position}");
+                        break;
+                    case 'D':
+                        result.AppendLine($"  Delete '{op.Char1}' at position {op.Position}");
+                        break;
+                    case 'I':
+                        result.AppendLine($"  Insert '{op.Char2}' at position {op.Position}");
+                        break;
+                }
+            }
+
+            return result.ToString();
+        }
+    }
+
+    // 4.4: ПОИСК ПАТТЕРНОВ С ПОДСТАНОВОЧНЫМИ СИМВОЛАМИ
+    public class WildcardPatternMatching
+    {
+        public static bool IsMatch(string text, string pattern)
+        {
+            int m = text.Length, n = pattern.Length;
+            var dp = new bool[m + 1, n + 1];
+            dp[0, 0] = true;
+
+            // Обработка начальных *
+            for (int j = 1; j <= n; j++)
+            {
+                if (pattern[j - 1] == '*')
+                    dp[0, j] = dp[0, j - 1];
+            }
+
+            for (int i = 1; i <= m; i++)
+            {
+                for (int j = 1; j <= n; j++)
+                {
+                    if (pattern[j - 1] == '*')
+                    {
+                        dp[i, j] = dp[i - 1, j] || dp[i, j - 1];
+                    }
+                    else if (pattern[j - 1] == '?' || pattern[j - 1] == text[i - 1])
+                    {
+                        dp[i, j] = dp[i - 1, j - 1];
+                    }
+                }
+            }
+
+            return dp[m, n];
+        }
+
+        public static List<(int start, int end)> FindAllMatches(string text, string pattern)
+        {
+            var matches = new List<(int, int)>();
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (IsMatchStartingAt(text, pattern, i))
+                {
+                    int j = i;
+                    while (j < text.Length && IsMatchStartingAt(text, pattern, i, j))
+                    {
+                        j++;
+                    }
+                    matches.Add((i, j - 1));
+                }
+            }
+
+            return matches;
+        }
+
+        private static bool IsMatchStartingAt(string text, string pattern, int start, int end = -1)
+        {
+            if (end == -1) end = text.Length - 1;
+
+            int i = start, j = 0;
+            while (i <= end && j < pattern.Length)
+            {
+                if (pattern[j] == '*')
+                {
+                    // * может соответствовать любому количеству символов
+                    if (j == pattern.Length - 1) return true; // * в конце
+
+                    // Рекурсивно проверяем все возможные продолжения
+                    for (int k = i; k <= end; k++)
+                    {
+                        if (IsMatchStartingAt(text, pattern.Substring(j + 1), k, end))
+                            return true;
+                    }
+                    return false;
+                }
+                else if (pattern[j] == '?' || pattern[j] == text[i])
+                {
+                    i++;
+                    j++;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            return j == pattern.Length && i > end;
+        }
+    }
+
+    // 4.5: ПАЛИНДРОМИЗАЦИЯ СТРОКИ С МИНИМАЛЬНЫМИ ВСТАВКАМИ
+    public class PalindromeMaker
+    {
+        public static (int minInsertions, string palindrome) MakePalindrome(string s)
+        {
+            // Используем LCS с обратной строкой
+            string reversed = new string(s.Reverse().ToArray());
+            string lcs = LongestCommonSubsequence.FindLCS(s, reversed);
+
+            int minInsertions = s.Length - lcs.Length;
+
+            // Строим палиндром
+            string palindrome = BuildPalindrome(s, lcs);
+
+            return (minInsertions, palindrome);
+        }
+
+        private static string BuildPalindrome(string s, string lcs)
+        {
+            var result = new StringBuilder();
+            int i = 0, j = 0;
+
+            // Добавляем символы до LCS
+            foreach (char c in s)
+            {
+                if (j < lcs.Length && c == lcs[j])
+                {
+                    result.Append(c);
+                    j++;
+                }
+                else
+                {
+                    result.Append(c);
+                }
+            }
+
+            // Добавляем обратную копию для симметрии
+            string firstHalf = result.ToString();
+            string secondHalf = new string(firstHalf.Reverse().ToArray());
+
+            return firstHalf + secondHalf;
+        }
+
+        public static List<(char character, int position)> FindInsertions(string s)
+        {
+            var insertions = new List<(char, int)>();
+            string reversed = new string(s.Reverse().ToArray());
+            string lcs = LongestCommonSubsequence.FindLCS(s, reversed);
+
+            int i = 0, j = 0;
+            foreach (char c in s)
+            {
+                if (j < lcs.Length && c == lcs[j])
+                {
+                    j++;
+                }
+                else
+                {
+                    insertions.Add((c, i));
+                }
+                i++;
+            }
+
+            return insertions;
+        }
+    }
+
+    // 4.6: ПОИСК НАИБОЛЬШЕЙ ПАЛИНДРОМНОЙ ПОДСТРОКИ (ALGORITHM MANACHER)
+    public class ManacherAlgorithm
+    {
+        public static string FindLongestPalindrome(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+
+            // Преобразуем строку для обработки четных и нечетных палиндромов
+            string transformed = TransformString(s);
+            int n = transformed.Length;
+            var p = new int[n]; // Массив длин палиндромов
+            int center = 0, right = 0;
+
+            for (int i = 1; i < n - 1; i++)
+            {
+                int mirror = 2 * center - i; // Зеркальная позиция
+
+                if (i < right)
+                    p[i] = Math.Min(right - i, p[mirror]);
+
+                // Попытка расширить палиндром
+                while (transformed[i + (1 + p[i])] == transformed[i - (1 + p[i])])
+                {
+                    p[i]++;
+                }
+
+                // Если палиндром расширился за текущую границу
+                if (i + p[i] > right)
+                {
+                    center = i;
+                    right = i + p[i];
+                }
+            }
+
+            // Находим максимальный палиндром
+            int maxLength = 0;
+            int maxCenter = 0;
+            for (int i = 1; i < n - 1; i++)
+            {
+                if (p[i] > maxLength)
+                {
+                    maxLength = p[i];
+                    maxCenter = i;
+                }
+            }
+
+            // Восстанавливаем исходную строку
+            int start = (maxCenter - maxLength) / 2;
+            return s.Substring(start, maxLength);
+        }
+
+        private static string TransformString(string s)
+        {
+            var result = new StringBuilder();
+            result.Append('^'); // Начальный маркер
+            foreach (char c in s)
+            {
+                result.Append('#');
+                result.Append(c);
+            }
+            result.Append("#$"); // Конечный маркер
+            return result.ToString();
+        }
+
+        public static List<string> FindAllPalindromes(string s)
+        {
+            var palindromes = new List<string>();
+            string transformed = TransformString(s);
+            int n = transformed.Length;
+            var p = new int[n];
+            int center = 0, right = 0;
+
+            for (int i = 1; i < n - 1; i++)
+            {
+                int mirror = 2 * center - i;
+
+                if (i < right)
+                    p[i] = Math.Min(right - i, p[mirror]);
+
+                while (transformed[i + (1 + p[i])] == transformed[i - (1 + p[i])])
+                {
+                    p[i]++;
+                }
+
+                if (i + p[i] > right)
+                {
+                    center = i;
+                    right = i + p[i];
+                }
+
+                // Добавляем найденный палиндром
+                if (p[i] > 0)
+                {
+                    int start = (i - p[i]) / 2;
+                    int length = p[i];
+                    string palindrome = s.Substring(start, length);
+                    if (!palindromes.Contains(palindrome))
+                        palindromes.Add(palindrome);
+                }
+            }
+
+            return palindromes.OrderByDescending(p => p.Length).ToList();
+        }
+    }
+
+    // 4.7: ПЕРИОДИЧЕСКИЕ СТРОКИ И ПОИСК ПЕРИОДА
+    public class PeriodFinder
+    {
+        public static int FindMinimalPeriod(string s)
+        {
+            int n = s.Length;
+            var lps = ComputeLPS(s); // Префикс-функция
+
+            int period = n - lps[n - 1];
+            return n % period == 0 ? period : n;
+        }
+
+        private static int[] ComputeLPS(string pattern)
+        {
+            int n = pattern.Length;
+            var lps = new int[n];
+            int len = 0;
+            int i = 1;
+
+            while (i < n)
+            {
+                if (pattern[i] == pattern[len])
+                {
+                    len++;
+                    lps[i] = len;
+                    i++;
+                }
+                else
+                {
+                    if (len != 0)
+                    {
+                        len = lps[len - 1];
+                    }
+                    else
+                    {
+                        lps[i] = 0;
+                        i++;
+                    }
+                }
+            }
+
+            return lps;
+        }
+
+        public static bool IsPeriodic(string s, int period)
+        {
+            if (s.Length % period != 0) return false;
+
+            for (int i = period; i < s.Length; i++)
+            {
+                if (s[i] != s[i % period])
+                    return false;
+            }
+            return true;
+        }
+
+        public static List<int> FindAllPeriods(string s)
+        {
+            var periods = new List<int>();
+            int n = s.Length;
+
+            for (int p = 1; p <= n / 2; p++)
+            {
+                if (IsPeriodic(s, p))
+                {
+                    periods.Add(p);
+                }
+            }
+
+            periods.Add(n); // Полная строка - всегда период
+            return periods;
+        }
+
+        // Использование Z-алгоритма для поиска периода
+        public static int FindPeriodWithZAlgorithm(string s)
+        {
+            var z = ComputeZArray(s);
+            int n = s.Length;
+
+            for (int i = 1; i < n; i++)
+            {
+                if (n % i == 0 && z[i] == n - i)
+                {
+                    return i;
+                }
+            }
+
+            return n;
+        }
+
+        private static int[] ComputeZArray(string s)
+        {
+            int n = s.Length;
+            var z = new int[n];
+            int left = 0, right = 0;
+
+            for (int i = 1; i < n; i++)
+            {
+                if (i <= right)
+                {
+                    z[i] = Math.Min(right - i + 1, z[i - left]);
+                }
+
+                while (i + z[i] < n && s[z[i]] == s[i + z[i]])
+                {
+                    z[i]++;
+                }
+
+                if (i + z[i] - 1 > right)
+                {
+                    left = i;
+                    right = i + z[i] - 1;
+                }
+            }
+
+            return z;
+        }
+    }
+
+    // 4.8: АНАГРАММЫ И ГРУППИРОВКА СЛОВ
+    public class AnagramGrouper
+    {
+        public static Dictionary<string, List<string>> GroupAnagrams(IEnumerable<string> words)
+        {
+            var groups = new Dictionary<string, List<string>>();
+
+            foreach (string word in words)
+            {
+                string key = GetAnagramKey(word);
+
+                if (!groups.ContainsKey(key))
+                {
+                    groups[key] = new List<string>();
+                }
+
+                groups[key].Add(word);
+            }
+
+            return groups;
+        }
+
+        private static string GetAnagramKey(string word)
+        {
+            var chars = word.ToLower().ToCharArray();
+            Array.Sort(chars);
+            return new string(chars);
+        }
+
+        public static void AddWord(Dictionary<string, List<string>> groups, string word)
+        {
+            string key = GetAnagramKey(word);
+
+            if (!groups.ContainsKey(key))
+            {
+                groups[key] = new List<string>();
+            }
+
+            groups[key].Add(word);
+        }
+
+        public static List<List<string>> FindAllAnagramGroups(IEnumerable<string> words)
+        {
+            var groups = GroupAnagrams(words);
+            return groups.Values.Where(group => group.Count > 1).ToList();
+        }
+
+        public static bool AreAnagrams(string word1, string word2)
+        {
+            if (word1.Length != word2.Length) return false;
+            return GetAnagramKey(word1) == GetAnagramKey(word2);
+        }
+    }
+
+    // 4.9: Z-ALGORITHM ДЛЯ ПОИСКА ПАТТЕРНОВ
+    public class ZAlgorithm
+    {
+        public static List<int> Search(string text, string pattern)
+        {
+            string combined = pattern + "$" + text;
+            var z = ComputeZArray(combined);
+            var matches = new List<int>();
+
+            for (int i = pattern.Length + 1; i < combined.Length; i++)
+            {
+                if (z[i] == pattern.Length)
+                {
+                    matches.Add(i - pattern.Length - 1);
+                }
+            }
+
+            return matches;
+        }
+
+        public static int[] ComputeZArray(string s)
+        {
+            int n = s.Length;
+            var z = new int[n];
+            int left = 0, right = 0;
+
+            for (int i = 1; i < n; i++)
+            {
+                if (i <= right)
+                {
+                    z[i] = Math.Min(right - i + 1, z[i - left]);
+                }
+
+                while (i + z[i] < n && s[z[i]] == s[i + z[i]])
+                {
+                    z[i]++;
+                }
+
+                if (i + z[i] - 1 > right)
+                {
+                    left = i;
+                    right = i + z[i] - 1;
+                }
+            }
+
+            return z;
+        }
+
+        public static List<int> FindAllOccurrences(string text, string pattern)
+        {
+            return Search(text, pattern);
+        }
+
+        public static bool ContainsPattern(string text, string pattern)
+        {
+            return Search(text, pattern).Count > 0;
+        }
+    }
+
+    // 4.10: РАЗЛИЧНЫЕ КОДИРОВАНИЯ СТРОК
+    public class StringEncoder
+    {
+        // Morse code
+        private static readonly Dictionary<char, string> MorseCode = new Dictionary<char, string>
+        {
+            {'A', ".-"}, {'B', "-..."}, {'C', "-.-."}, {'D', "-.."}, {'E', "."},
+            {'F', "..-."}, {'G', "--."}, {'H', "...."}, {'I', ".."}, {'J', ".---"},
+            {'K', "-.-"}, {'L', ".-.."}, {'M', "--"}, {'N', "-."}, {'O', "---"},
+            {'P', ".--."}, {'Q', "--.-"}, {'R', ".-."}, {'S', "..."}, {'T', "-"},
+            {'U', "..-"}, {'V', "...-"}, {'W', ".--"}, {'X', "-..-"}, {'Y', "-.--"},
+            {'Z', "--.."}, {'0', "-----"}, {'1', ".----"}, {'2', "..---"}, {'3', "...--"},
+            {'4', "....-"}, {'5', "....."}, {'6', "-...."}, {'7', "--..."}, {'8', "---.."},
+            {'9', "----."}, {' ', "/"}
+        };
+
+        public static string ToMorseCode(string text)
+        {
+            var result = new StringBuilder();
+            foreach (char c in text.ToUpper())
+            {
+                if (MorseCode.ContainsKey(c))
+                {
+                    result.Append(MorseCode[c] + " ");
+                }
+            }
+            return result.ToString().Trim();
+        }
+
+        public static string FromMorseCode(string morse)
+        {
+            var reverseDict = MorseCode.ToDictionary(x => x.Value, x => x.Key);
+            var words = morse.Split(new[] { " / " }, StringSplitOptions.None);
+            var result = new StringBuilder();
+
+            foreach (string word in words)
+            {
+                var letters = word.Split(' ');
+                foreach (string letter in letters)
+                {
+                    if (reverseDict.ContainsKey(letter))
+                    {
+                        result.Append(reverseDict[letter]);
+                    }
+                }
+                result.Append(' ');
+            }
+
+            return result.ToString().Trim();
+        }
+
+        // Base64
+        public static string ToBase64(string text)
+        {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            return Convert.ToBase64String(bytes);
+        }
+
+        public static string FromBase64(string base64)
+        {
+            var bytes = Convert.FromBase64String(base64);
+            return Encoding.UTF8.GetString(bytes);
+        }
+
+        // URL encoding
+        public static string UrlEncode(string text)
+        {
+            return Uri.EscapeDataString(text);
+        }
+
+        public static string UrlDecode(string encoded)
+        {
+            return Uri.UnescapeDataString(encoded);
+        }
+
+        // Hex encoding
+        public static string ToHex(string text)
+        {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            return BitConverter.ToString(bytes).Replace("-", "").ToLower();
+        }
+
+        public static string FromHex(string hex)
+        {
+            var bytes = new byte[hex.Length / 2];
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+            }
+            return Encoding.UTF8.GetString(bytes);
+        }
+
+        // ROT13
+        public static string Rot13(string text)
+        {
+            var result = new StringBuilder();
+            foreach (char c in text)
+            {
+                if (char.IsLetter(c))
+                {
+                    char offset = char.IsUpper(c) ? 'A' : 'a';
+                    result.Append((char)(((c - offset + 13) % 26) + offset));
+                }
+                else
+                {
+                    result.Append(c);
+                }
+            }
+            return result.ToString();
+        }
+
+        // Tap Code (полибианский квадрат)
+        public static string ToTapCode(string text)
+        {
+            var result = new StringBuilder();
+            foreach (char c in text.ToUpper().Where(char.IsLetter))
+            {
+                if (c == 'K') // Обработка K (часто объединяют с C)
+                {
+                    result.Append("13 ");
+                    continue;
+                }
+
+                int index = c - 'A';
+                if (index > 10) index--; // Пропускаем K
+
+                int row = index / 5 + 1;
+                int col = index % 5 + 1;
+
+                result.Append($"{row}{col} ");
+            }
+            return result.ToString().Trim();
+        }
+    }
+
+    // 4.11: ПОИСК НАИБОЛЬШЕЙ ОБЩЕЙ ПОДСТРОКИ
+    public class LongestCommonSubstring
+    {
+        public static string FindLCS(string s1, string s2)
+        {
+            int m = s1.Length, n = s2.Length;
+            var dp = new int[m + 1, n + 1];
+            int maxLength = 0;
+            int endIndex = 0;
+
+            for (int i = 1; i <= m; i++)
+            {
+                for (int j = 1; j <= n; j++)
+                {
+                    if (s1[i - 1] == s2[j - 1])
+                    {
+                        dp[i, j] = dp[i - 1, j - 1] + 1;
+                        if (dp[i, j] > maxLength)
+                        {
+                            maxLength = dp[i, j];
+                            endIndex = i - 1;
+                        }
+                    }
+                }
+            }
+
+            return maxLength > 0 ? s1.Substring(endIndex - maxLength + 1, maxLength) : "";
+        }
+
+        public static List<string> FindAllCommonSubstrings(string s1, string s2, int minLength = 2)
+        {
+            var substrings = new HashSet<string>();
+
+            for (int i = 0; i < s1.Length; i++)
+            {
+                for (int j = i + minLength; j <= s1.Length; j++)
+                {
+                    string substring = s1.Substring(i, j - i);
+                    if (s2.Contains(substring) && substring.Length >= minLength)
+                    {
+                        substrings.Add(substring);
+                    }
+                }
+            }
+
+            return substrings.OrderByDescending(s => s.Length).ToList();
+        }
+
+        // Для множества строк
+        public static string FindLCSMultiple(params string[] strings)
+        {
+            if (strings.Length == 0) return "";
+            if (strings.Length == 1) return strings[0];
+
+            string lcs = strings[0];
+            for (int i = 1; i < strings.Length; i++)
+            {
+                lcs = FindLCS(lcs, strings[i]);
+                if (string.IsNullOrEmpty(lcs)) break;
+            }
+
+            return lcs;
+        }
+    }
+
+    // 4.12: СЖАТИЕ СТРОК (RUN-LENGTH ENCODING)
+    public class RunLengthEncoding
+    {
+        public static string Compress(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+
+            var result = new StringBuilder();
+            int count = 1;
+            char current = text[0];
+
+            for (int i = 1; i < text.Length; i++)
+            {
+                if (text[i] == current)
+                {
+                    count++;
+                }
+                else
+                {
+                    result.Append(EncodeRun(current, count));
+                    current = text[i];
+                    count = 1;
+                }
+            }
+
+            result.Append(EncodeRun(current, count));
+            return result.ToString();
+        }
+
+        private static string EncodeRun(char character, int count)
+        {
+            return count > 1 ? $"{count}{character}" : character.ToString();
+        }
+
+        public static string Decompress(string compressed)
+        {
+            var result = new StringBuilder();
+            int i = 0;
+
+            while (i < compressed.Length)
+            {
+                if (char.IsDigit(compressed[i]))
+                {
+                    // Извлекаем число
+                    int start = i;
+                    while (i < compressed.Length && char.IsDigit(compressed[i]))
+                    {
+                        i++;
+                    }
+
+                    int count = int.Parse(compressed.Substring(start, i - start));
+                    char character = compressed[i];
+                    result.Append(character, count);
+                    i++;
+                }
+                else
+                {
+                    result.Append(compressed[i]);
+                    i++;
+                }
+            }
+
+            return result.ToString();
+        }
+
+        public static double CompressionRatio(string original, string compressed)
+        {
+            return (double)compressed.Length / original.Length;
+        }
+
+        // RLE с переменной длиной кода
+        public static string CompressVariable(string text)
+        {
+            var result = new StringBuilder();
+            int i = 0;
+
+            while (i < text.Length)
+            {
+                int count = 1;
+                while (i + count < text.Length && text[i + count] == text[i] && count < 9)
+                {
+                    count++;
+                }
+
+                result.Append($"{count}{text[i]}");
+                i += count;
+            }
+
+            return result.ToString();
+        }
+    }
+
+    // 4.13: ПОИСК ПОДСТРОКИ В РОТИРОВАННОЙ СТРОКЕ
+    public class RotatedStringSearch
+    {
+        public static int FindInRotatedString(string rotated, string pattern)
+        {
+            // Трюк с удвоением строки
+            string doubled = rotated + rotated;
+            return doubled.IndexOf(pattern);
+        }
+
+        public static List<int> FindAllInRotatedString(string rotated, string pattern)
+        {
+            string doubled = rotated + rotated;
+            var positions = new List<int>();
+            int index = 0;
+
+            while ((index = doubled.IndexOf(pattern, index)) != -1)
+            {
+                if (index < rotated.Length) // Убеждаемся, что это валидная ротация
+                {
+                    positions.Add(index);
+                }
+                index++;
+            }
+
+            return positions;
+        }
+
+        public static bool ContainsInRotatedString(string rotated, string pattern)
+        {
+            return FindInRotatedString(rotated, pattern) != -1;
+        }
+
+        // Генерация всех ротаций
+        public static List<string> GenerateAllRotations(string s)
+        {
+            var rotations = new List<string>();
+            for (int i = 0; i < s.Length; i++)
+            {
+                string rotation = s.Substring(i) + s.Substring(0, i);
+                rotations.Add(rotation);
+            }
+            return rotations;
+        }
+
+        // Использование KMP для эффективного поиска
+        public static int FindWithKMP(string rotated, string pattern)
+        {
+            string doubled = rotated + rotated;
+            var lps = ComputeLPS(pattern);
+            int i = 0, j = 0;
+
+            while (i < doubled.Length)
+            {
+                if (pattern[j] == doubled[i])
+                {
+                    i++;
+                    j++;
+                }
+
+                if (j == pattern.Length)
+                {
+                    return i - j;
+                }
+                else if (i < doubled.Length && pattern[j] != doubled[i])
+                {
+                    if (j != 0)
+                        j = lps[j - 1];
+                    else
+                        i++;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int[] ComputeLPS(string pattern)
+        {
+            int n = pattern.Length;
+            var lps = new int[n];
+            int len = 0;
+            int i = 1;
+
+            while (i < n)
+            {
+                if (pattern[i] == pattern[len])
+                {
+                    len++;
+                    lps[i] = len;
+                    i++;
+                }
+                else
+                {
+                    if (len != 0)
+                    {
+                        len = lps[len - 1];
+                    }
+                    else
+                    {
+                        lps[i] = 0;
+                        i++;
+                    }
+                }
+            }
+
+            return lps;
+        }
+    }
+
+    // 4.14: ВАЛИДАЦИЯ ВЛОЖЕННОСТИ СКОБОК И ТЕГОВ
+    public class BracketValidator
+    {
+        private static readonly Dictionary<char, char> Brackets = new Dictionary<char, char>
+        {
+            {'(', ')'}, {'[', ']'}, {'{', '}'}, {'<', '>'}
+        };
+
+        public static bool Validate(string expression)
+        {
+            var stack = new Stack<char>();
+
+            foreach (char c in expression)
+            {
+                if (Brackets.ContainsKey(c)) // Открывающая скобка
+                {
+                    stack.Push(c);
+                }
+                else if (Brackets.ContainsValue(c)) // Закрывающая скобка
+                {
+                    if (stack.Count == 0) return false;
+
+                    char opening = stack.Pop();
+                    if (Brackets[opening] != c) return false;
+                }
+            }
+
+            return stack.Count == 0;
+        }
+
+        public static (bool isValid, List<string> errors) ValidateWithErrors(string expression)
+        {
+            var errors = new List<string>();
+            var stack = new Stack<(char bracket, int position)>();
+            int position = 0;
+
+            foreach (char c in expression)
+            {
+                position++;
+
+                if (Brackets.ContainsKey(c))
+                {
+                    stack.Push((c, position));
+                }
+                else if (Brackets.ContainsValue(c))
+                {
+                    if (stack.Count == 0)
+                    {
+                        errors.Add($"Unexpected closing bracket '{c}' at position {position}");
+                        continue;
+                    }
+
+                    var (opening, openPos) = stack.Pop();
+                    if (Brackets[opening] != c)
+                    {
+                        errors.Add($"Mismatched brackets: '{opening}' at position {openPos} and '{c}' at position {position}");
+                    }
+                }
+            }
+
+            while (stack.Count > 0)
+            {
+                var (opening, openPos) = stack.Pop();
+                errors.Add($"Unclosed bracket '{opening}' at position {openPos}");
+            }
+
+            return (errors.Count == 0, errors);
+        }
+
+        // HTML/XML теги
+        public static bool ValidateHtml(string html)
+        {
+            var stack = new Stack<string>();
+            int i = 0;
+
+            while (i < html.Length)
+            {
+                if (html[i] == '<')
+                {
+                    int j = html.IndexOf('>', i);
+                    if (j == -1) return false;
+
+                    string tag = html.Substring(i + 1, j - i - 1).Trim();
+
+                    if (tag.StartsWith("/")) // Закрывающий тег
+                    {
+                        string tagName = tag.Substring(1);
+                        if (stack.Count == 0 || stack.Pop() != tagName)
+                            return false;
+                    }
+                    else if (!tag.EndsWith("/")) // Открывающий тег (игнорируем самозакрывающиеся)
+                    {
+                        // Извлекаем имя тега (игнорируем атрибуты)
+                        int spaceIndex = tag.IndexOf(' ');
+                        string tagName = spaceIndex == -1 ? tag : tag.Substring(0, spaceIndex);
+                        stack.Push(tagName);
+                    }
+
+                    i = j + 1;
+                }
+                else
+                {
+                    i++;
+                }
+            }
+
+            return stack.Count == 0;
+        }
+
+        public static string AutoComplete(string incomplete)
+        {
+            var stack = new Stack<char>();
+            var result = new StringBuilder(incomplete);
+
+            foreach (char c in incomplete)
+            {
+                if (Brackets.ContainsKey(c))
+                {
+                    stack.Push(c);
+                }
+                else if (Brackets.ContainsValue(c) && stack.Count > 0)
+                {
+                    stack.Pop();
+                }
+            }
+
+            // Добавляем недостающие закрывающие скобки
+            while (stack.Count > 0)
+            {
+                char opening = stack.Pop();
+                result.Append(Brackets[opening]);
+            }
+
+            return result.ToString();
+        }
+    }
+
+    // 4.15: ПОИСК ПОВТОРЯЮЩИХСЯ ПОДСТРОК
+    public class RepeatedSubstringFinder
+    {
+        public static List<string> FindRepeatedSubstrings(string s, int minLength = 2, int minOccurrences = 2)
+        {
+            var substrings = new Dictionary<string, int>();
+
+            for (int length = minLength; length <= s.Length / 2; length++)
+            {
+                for (int i = 0; i <= s.Length - length; i++)
+                {
+                    string substring = s.Substring(i, length);
+
+                    if (!substrings.ContainsKey(substring))
+                    {
+                        substrings[substring] = 0;
+                    }
+
+                    substrings[substring]++;
+                }
+            }
+
+            return substrings
+                .Where(kv => kv.Value >= minOccurrences)
+                .Select(kv => kv.Key)
+                .OrderByDescending(sub => sub.Length)
+                .ThenBy(sub => sub)
+                .ToList();
+        }
+
+        public static List<(string substring, List<int> positions)> FindRepeatedWithPositions(string s, int minLength = 2)
+        {
+            var result = new Dictionary<string, List<int>>();
+
+            for (int length = minLength; length <= s.Length / 2; length++)
+            {
+                for (int i = 0; i <= s.Length - length; i++)
+                {
+                    string substring = s.Substring(i, length);
+
+                    if (!result.ContainsKey(substring))
+                    {
+                        result[substring] = new List<int>();
+                    }
+
+                    result[substring].Add(i);
+                }
+            }
+
+            return result
+                .Where(kv => kv.Value.Count >= 2)
+                .Select(kv => (kv.Key, kv.Value))
+                .OrderByDescending(x => x.Key.Length)
+                .ThenBy(x => x.Key)
+                .ToList();
+        }
+
+        // С поддержкой wildcards
+        public static List<string> FindRepeatedWithWildcards(string s, int minLength = 2, int minOccurrences = 2, char wildcard = '?')
+        {
+            var result = new List<string>();
+
+            for (int length = minLength; length <= s.Length / 2; length++)
+            {
+                var patterns = new Dictionary<string, List<int>>();
+
+                for (int i = 0; i <= s.Length - length; i++)
+                {
+                    string substring = s.Substring(i, length);
+
+                    // Генерируем паттерны с wildcards
+                    var patternVariations = GeneratePatternVariations(substring, wildcard);
+
+                    foreach (string pattern in patternVariations)
+                    {
+                        if (!patterns.ContainsKey(pattern))
+                        {
+                            patterns[pattern] = new List<int>();
+                        }
+
+                        patterns[pattern].Add(i);
+                    }
+                }
+
+                result.AddRange(patterns
+                    .Where(kv => kv.Value.Count >= minOccurrences)
+                    .Select(kv => kv.Key));
+            }
+
+            return result.Distinct().OrderByDescending(p => p.Length).ToList();
+        }
+
+        private static List<string> GeneratePatternVariations(string s, char wildcard)
+        {
+            var variations = new List<string> { s };
+
+            // Генерируем варианты с wildcards на некоторых позициях
+            for (int mask = 1; mask < (1 << s.Length); mask++)
+            {
+                var chars = s.ToCharArray();
+                for (int i = 0; i < s.Length; i++)
+                {
+                    if ((mask & (1 << i)) != 0)
+                    {
+                        chars[i] = wildcard;
+                    }
+                }
+                variations.Add(new string(chars));
+            }
+
+            return variations;
+        }
+
+        // Оптимизированная версия для больших строк
+        public static List<string> FindRepeatedOptimized(string s, int minLength = 2, int minOccurrences = 2)
+        {
+            var result = new HashSet<string>();
+
+            // Используем хеширование для оптимизации
+            var hashPositions = new Dictionary<string, List<int>>();
+
+            for (int length = minLength; length <= s.Length / minOccurrences; length++)
+            {
+                hashPositions.Clear();
+
+                for (int i = 0; i <= s.Length - length; i++)
+                {
+                    string substring = s.Substring(i, length);
+
+                    if (!hashPositions.ContainsKey(substring))
+                    {
+                        hashPositions[substring] = new List<int>();
+                    }
+
+                    hashPositions[substring].Add(i);
+                }
+
+                foreach (var kvp in hashPositions)
+                {
+                    if (kvp.Value.Count >= minOccurrences)
+                    {
+                        result.Add(kvp.Key);
+                    }
+                }
+            }
+
+            return result.OrderByDescending(s => s.Length).ThenBy(s => s).ToList();
+        }
+    }
+}
+
+// Примеры использования
+public class Program
+{
+    public static void Main(string[] args)
+    {
+        Console.WriteLine("=== Testing String Algorithms ===");
+
+        // 4.1: Регулярные выражения
+        TestRegexEngine();
+
+        // 4.2: LCS
+        TestLCS();
+
+        // 4.3: Расстояние Левенштейна
+        TestLevenshtein();
+
+        // 4.4: Wildcard matching
+        TestWildcardMatching();
+
+        // 4.5: Палиндромизация
+        TestPalindromeMaker();
+
+        // 4.6: Алгоритм Манакера
+        TestManacher();
+
+        // 4.7: Поиск периода
+        TestPeriodFinder();
+
+        // 4.8: Анаграммы
+        TestAnagramGrouper();
+
+        // 4.9: Z-алгоритм
+        TestZAlgorithm();
+
+        // 4.10: Кодирования
+        TestEncodings();
+
+        // 4.11: Общие подстроки
+        TestCommonSubstrings();
+
+        // 4.12: RLE сжатие
+        TestRLE();
+
+        // 4.13: Поиск в ротированной строке
+        TestRotatedSearch();
+
+        // 4.14: Валидация скобок
+        TestBracketValidator();
+
+        // 4.15: Повторяющиеся подстроки
+        TestRepeatedSubstrings();
+
+        Console.WriteLine("All tests completed!");
+    }
+
+    static void TestRegexEngine()
+    {
+        Console.WriteLine("\n1. Testing Regex Engine:");
+        Console.WriteLine($"'abc' ~ 'a.c': {StringAlgorithms.RegexEngine.IsMatch("abc", "a.c")}");
+        Console.WriteLine($"'aab' ~ 'a*b': {StringAlgorithms.RegexEngine.IsMatch("aab", "a*b")}");
+        Console.WriteLine($"'abc' ~ '[abc]+': {StringAlgorithms.RegexEngine.IsMatch("abc", "[abc]+")}");
+    }
+
+    static void TestLCS()
+    {
+        Console.WriteLine("\n2. Testing LCS:");
+        string s1 = "ABCDGH", s2 = "AEDFHR";
+        Console.WriteLine($"LCS of '{s1}' and '{s2}': {StringAlgorithms.LongestCommonSubsequence.FindLCS(s1, s2)}");
+    }
+
+    static void TestLevenshtein()
+    {
+        Console.WriteLine("\n3. Testing Levenshtein Distance:");
+        string s1 = "kitten", s2 = "sitting";
+        var result = StringAlgorithms.LevenshteinDistance.Calculate(s1, s2);
+        Console.WriteLine($"Distance between '{s1}' and '{s2}': {result.distance}");
+        Console.WriteLine(StringAlgorithms.LevenshteinDistance.VisualizeTransformations(s1, s2));
+    }
+
+    static void TestWildcardMatching()
+    {
+        Console.WriteLine("\n4. Testing Wildcard Matching:");
+        Console.WriteLine($"'hello' ~ 'h?llo': {StringAlgorithms.WildcardPatternMatching.IsMatch("hello", "h?llo")}");
+        Console.WriteLine($"'hello world' ~ 'h*ld': {StringAlgorithms.WildcardPatternMatching.IsMatch("hello world", "h*ld")}");
+    }
+
+    static void TestPalindromeMaker()
+    {
+        Console.WriteLine("\n5. Testing Palindrome Maker:");
+        string s = "abc";
+        var result = StringAlgorithms.PalindromeMaker.MakePalindrome(s);
+        Console.WriteLine($"Min insertions for '{s}': {result.minInsertions}");
+        Console.WriteLine($"Palindrome: {result.palindrome}");
+    }
+
+    static void TestManacher()
+    {
+        Console.WriteLine("\n6. Testing Manacher Algorithm:");
+        string s = "babad";
+        Console.WriteLine($"Longest palindrome in '{s}': {StringAlgorithms.ManacherAlgorithm.FindLongestPalindrome(s)}");
+    }
+
+    static void TestPeriodFinder()
+    {
+        Console.WriteLine("\n7. Testing Period Finder:");
+        string s = "abcabcabc";
+        Console.WriteLine($"Minimal period of '{s}': {StringAlgorithms.PeriodFinder.FindMinimalPeriod(s)}");
+    }
+
+    static void TestAnagramGrouper()
+    {
+        Console.WriteLine("\n8. Testing Anagram Grouper:");
+        var words = new[] { "listen", "silent", "enlist", "hello", "world" };
+        var groups = StringAlgorithms.AnagramGrouper.GroupAnagrams(words);
+        foreach (var group in groups)
+        {
+            Console.WriteLine($"{group.Key}: {string.Join(", ", group.Value)}");
+        }
+    }
+
+    static void TestZAlgorithm()
+    {
+        Console.WriteLine("\n9. Testing Z Algorithm:");
+        string text = "ababcabcabababd", pattern = "ababd";
+        var matches = StringAlgorithms.ZAlgorithm.Search(text, pattern);
+        Console.WriteLine($"Pattern '{pattern}' found in '{text}' at positions: {string.Join(", ", matches)}");
+    }
+
+    static void TestEncodings()
+    {
+        Console.WriteLine("\n10. Testing Encodings:");
+        string text = "HELLO";
+        Console.WriteLine($"Morse code for '{text}': {StringAlgorithms.StringEncoder.ToMorseCode(text)}");
+        Console.WriteLine($"Base64 for '{text}': {StringAlgorithms.StringEncoder.ToBase64(text)}");
+        Console.WriteLine($"ROT13 for '{text}': {StringAlgorithms.StringEncoder.Rot13(text)}");
+    }
+
+    static void TestCommonSubstrings()
+    {
+        Console.WriteLine("\n11. Testing Common Substrings:");
+        string s1 = "ABABC", s2 = "BABCA";
+        Console.WriteLine($"Longest common substring of '{s1}' and '{s2}': {StringAlgorithms.LongestCommonSubstring.FindLCS(s1, s2)}");
+    }
+
+    static void TestRLE()
+    {
+        Console.WriteLine("\n12. Testing RLE:");
+        string text = "AAABBBCCCD";
+        string compressed = StringAlgorithms.RunLengthEncoding.Compress(text);
+        Console.WriteLine($"Original: '{text}', Compressed: '{compressed}'");
+        Console.WriteLine($"Compression ratio: {StringAlgorithms.RunLengthEncoding.CompressionRatio(text, compressed):P2}");
+    }
+
+    static void TestRotatedSearch()
+    {
+        Console.WriteLine("\n13. Testing Rotated String Search:");
+        string rotated = "CDEAB", pattern = "ABC";
+        Console.WriteLine($"Pattern '{pattern}' in rotated '{rotated}': {StringAlgorithms.RotatedStringSearch.ContainsInRotatedString(rotated, pattern)}");
+    }
+
+    static void TestBracketValidator()
+    {
+        Console.WriteLine("\n14. Testing Bracket Validator:");
+        string expression = "({[]})";
+        Console.WriteLine($"Expression '{expression}' is valid: {StringAlgorithms.BracketValidator.Validate(expression)}");
+    }
+
+    static void TestRepeatedSubstrings()
+    {
+        Console.WriteLine("\n15. Testing Repeated Substrings:");
+        string s = "ABCABCABCD";
+        var repeated = StringAlgorithms.RepeatedSubstringFinder.FindRepeatedSubstrings(s, 2, 2);
+        Console.WriteLine($"Repeated substrings in '{s}': {string.Join(", ", repeated)}");
+    }
+}
