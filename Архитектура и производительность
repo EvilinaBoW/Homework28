@@ -1,0 +1,2005 @@
+﻿using System;
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Data;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+
+namespace ProfessionalSystems
+{
+    // 5.1: ПРОФИЛИРОВАНИЕ И ОПТИМИЗАЦИЯ ПАМЯТИ
+    public class MemoryProfiler : IDisposable
+    {
+        private readonly Timer _monitoringTimer;
+        private readonly ConcurrentDictionary<string, MemorySnapshot> _snapshots;
+        private readonly List<GCEvent> _gcEvents;
+        private long _totalAllocated;
+        private long _totalFreed;
+
+        public MemoryProfiler()
+        {
+            _snapshots = new ConcurrentDictionary<string, MemorySnapshot>();
+            _gcEvents = new List<GCEvent>();
+            _monitoringTimer = new Timer(MonitorMemory, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+        }
+
+        public void TakeSnapshot(string name)
+        {
+            var snapshot = new MemorySnapshot
+            {
+                Name = name,
+                Timestamp = DateTime.UtcNow,
+                TotalMemory = GC.GetTotalMemory(false),
+                Gen0Collections = GC.CollectionCount(0),
+                Gen1Collections = GC.CollectionCount(1),
+                Gen2Collections = GC.CollectionCount(2),
+                WorkingSet = Process.GetCurrentProcess().WorkingSet64,
+                PrivateMemory = Process.GetCurrentProcess().PrivateMemorySize64
+            };
+
+            _snapshots[name] = snapshot;
+        }
+
+        private void MonitorMemory(object state)
+        {
+            var currentMemory = GC.GetTotalMemory(false);
+            var previousMemory = _snapshots.Values.LastOrDefault()?.TotalMemory ?? 0;
+
+            if (currentMemory > previousMemory)
+                _totalAllocated += currentMemory - previousMemory;
+            else
+                _totalFreed += previousMemory - currentMemory;
+
+            TakeSnapshot($"Auto_{DateTime.UtcNow:HHmmss}");
+        }
+
+        public MemoryAnalysis GetAnalysis()
+        {
+            var snapshots = _snapshots.Values.OrderBy(s => s.Timestamp).ToList();
+            var leaks = new List<MemoryLeak>();
+
+            for (int i = 1; i < snapshots.Count; i++)
+            {
+                var growth = snapshots[i].TotalMemory - snapshots[i - 1].TotalMemory;
+                if (growth > 1024 * 1024) // 1MB growth
+                {
+                    leaks.Add(new MemoryLeak
+                    {
+                        StartTime = snapshots[i - 1].Timestamp,
+                        EndTime = snapshots[i].Timestamp,
+                        MemoryGrowth = growth,
+                        RatePerMinute = growth / (snapshots[i].Timestamp - snapshots[i - 1].Timestamp).TotalMinutes
+                    });
+                }
+            }
+
+            return new MemoryAnalysis
+            {
+                Snapshots = snapshots,
+                GCEvents = _gcEvents,
+                MemoryLeaks = leaks,
+                TotalAllocated = _totalAllocated,
+                TotalFreed = _totalFreed,
+                NetGrowth = _totalAllocated - _totalFreed,
+                FragmentationLevel = CalculateFragmentation()
+            };
+        }
+
+        private double CalculateFragmentation()
+        {
+            var process = Process.GetCurrentProcess();
+            var totalMemory = process.WorkingSet64;
+            var privateMemory = process.PrivateMemorySize64;
+            return totalMemory > 0 ? (double)(totalMemory - privateMemory) / totalMemory : 0;
+        }
+
+        public void Dispose() => _monitoringTimer?.Dispose();
+    }
+
+    public class MemorySnapshot
+    {
+        public string Name { get; set; }
+        public DateTime Timestamp { get; set; }
+        public long TotalMemory { get; set; }
+        public int Gen0Collections { get; set; }
+        public int Gen1Collections { get; set; }
+        public int Gen2Collections { get; set; }
+        public long WorkingSet { get; set; }
+        public long PrivateMemory { get; set; }
+    }
+
+    public class GCEvent
+    {
+        public GCEventType Type { get; set; }
+        public DateTime Timestamp { get; set; }
+        public long MemoryBefore { get; set; }
+        public long MemoryAfter { get; set; }
+    }
+
+    public enum GCEventType { Approaching, Completed }
+
+    public class MemoryLeak
+    {
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
+        public long MemoryGrowth { get; set; }
+        public double RatePerMinute { get; set; }
+    }
+
+    public class MemoryAnalysis
+    {
+        public List<MemorySnapshot> Snapshots { get; set; }
+        public List<GCEvent> GCEvents { get; set; }
+        public List<MemoryLeak> MemoryLeaks { get; set; }
+        public long TotalAllocated { get; set; }
+        public long TotalFreed { get; set; }
+        public long NetGrowth { get; set; }
+        public double FragmentationLevel { get; set; }
+
+        public string GetRecommendations()
+        {
+            var recommendations = new List<string>();
+            if (MemoryLeaks.Count > 0) recommendations.Add("Обнаружены утечки памяти");
+            if (FragmentationLevel > 0.3) recommendations.Add("Высокая фрагментация памяти");
+            return string.Join("\n", recommendations);
+        }
+    }
+
+    // 5.2: СИСТЕМА ЛОГИРОВАНИЯ С АСИНХРОННОЙ ЗАПИСЬЮ
+    public class AdvancedLogger : IDisposable
+    {
+        private readonly Channel<LogEntry> _logChannel;
+        private readonly string _logDirectory;
+        private readonly Timer _rotationTimer;
+        private readonly CancellationTokenSource _cts;
+        private readonly Task _processingTask;
+
+        public AdvancedLogger(string logDirectory = "logs")
+        {
+            _logDirectory = logDirectory;
+            Directory.CreateDirectory(logDirectory);
+
+            _logChannel = Channel.CreateUnbounded<LogEntry>();
+            _cts = new CancellationTokenSource();
+            _processingTask = Task.Run(ProcessLogEntries);
+            _rotationTimer = new Timer(_ => RotateLogs(), null, TimeSpan.FromHours(24), TimeSpan.FromHours(24));
+        }
+
+        public void Log(LogLevel level, string message, object data = null, [System.Runtime.CompilerServices.CallerMemberName] string member = "")
+        {
+            var entry = new LogEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                Level = level,
+                Message = message,
+                Data = data,
+                MemberName = member,
+                ThreadId = Environment.CurrentManagedThreadId
+            };
+
+            _logChannel.Writer.TryWrite(entry);
+        }
+
+        private async Task ProcessLogEntries()
+        {
+            await foreach (var entry in _logChannel.Reader.ReadAllAsync(_cts.Token))
+            {
+                try
+                {
+                    await WriteLogEntry(entry);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Logging failed: {ex.Message}");
+                }
+            }
+        }
+
+        private async Task WriteLogEntry(LogEntry entry)
+        {
+            var logFile = Path.Combine(_logDirectory, $"app_{DateTime.Now:yyyyMMdd}.log");
+            var json = JsonSerializer.Serialize(entry);
+            var logLine = json + Environment.NewLine;
+
+            await File.AppendAllTextAsync(logFile, logLine, _cts.Token);
+        }
+
+        private void RotateLogs()
+        {
+            // Архивирование старых логов
+            var oldLogs = Directory.GetFiles(_logDirectory, "*.log")
+                .Where(f => File.GetCreationTime(f) < DateTime.Now.AddDays(-7));
+
+            foreach (var log in oldLogs)
+            {
+                try
+                {
+                    File.Move(log, log + ".bak");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to rotate log {log}: {ex.Message}");
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            _cts.Cancel();
+            _rotationTimer?.Dispose();
+            try
+            {
+                _processingTask?.Wait(TimeSpan.FromSeconds(5));
+            }
+            catch (AggregateException) { }
+        }
+    }
+
+    public class LogEntry
+    {
+        public DateTime Timestamp { get; set; }
+        public LogLevel Level { get; set; }
+        public string Message { get; set; }
+        public object Data { get; set; }
+        public string MemberName { get; set; }
+        public int ThreadId { get; set; }
+    }
+
+    public enum LogLevel { Debug, Info, Warning, Error }
+
+    // 5.3: КЭШИРОВАНИЕ И МЕМОИЗАЦИЯ ФУНКЦИЙ
+    public class MemoizationCache
+    {
+        private readonly ConcurrentDictionary<string, CacheEntry> _cache;
+        private readonly Timer _cleanupTimer;
+
+        public MemoizationCache()
+        {
+            _cache = new ConcurrentDictionary<string, CacheEntry>();
+            _cleanupTimer = new Timer(_ => CleanupExpired(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        }
+
+        public TResult Memoize<TResult>(Func<TResult> function, string key = null, TimeSpan? ttl = null)
+        {
+            key ??= GenerateKey(function.Method, Array.Empty<object>());
+
+            if (_cache.TryGetValue(key, out var entry) && !entry.IsExpired)
+                return (TResult)entry.Value;
+
+            var result = function();
+            _cache[key] = new CacheEntry(result, ttl);
+            return result;
+        }
+
+        public TResult Memoize<T, TResult>(Func<T, TResult> function, T arg, string key = null, TimeSpan? ttl = null)
+        {
+            key ??= GenerateKey(function.Method, new object[] { arg });
+
+            if (_cache.TryGetValue(key, out var entry) && !entry.IsExpired)
+                return (TResult)entry.Value;
+
+            var result = function(arg);
+            _cache[key] = new CacheEntry(result, ttl);
+            return result;
+        }
+
+        private string GenerateKey(MethodInfo method, object[] arguments)
+        {
+            var keyBuilder = new StringBuilder();
+            keyBuilder.Append(method.DeclaringType?.FullName);
+            keyBuilder.Append('.');
+            keyBuilder.Append(method.Name);
+
+            foreach (var arg in arguments)
+                keyBuilder.Append(':').Append(arg?.GetHashCode() ?? 0);
+
+            return keyBuilder.ToString();
+        }
+
+        public void Invalidate(string pattern = null)
+        {
+            var keysToRemove = _cache.Keys.Where(k => pattern == null || k.Contains(pattern)).ToList();
+            foreach (var key in keysToRemove)
+                _cache.TryRemove(key, out _);
+        }
+
+        private void CleanupExpired()
+        {
+            var expiredKeys = _cache.Where(kv => kv.Value.IsExpired).Select(kv => kv.Key).ToList();
+            foreach (var key in expiredKeys)
+                _cache.TryRemove(key, out _);
+        }
+    }
+
+    public class CacheEntry
+    {
+        public object Value { get; }
+        public DateTime CreatedAt { get; }
+        public TimeSpan? TimeToLive { get; }
+
+        public CacheEntry(object value, TimeSpan? ttl = null)
+        {
+            Value = value;
+            CreatedAt = DateTime.UtcNow;
+            TimeToLive = ttl;
+        }
+
+        public bool IsExpired => TimeToLive.HasValue && DateTime.UtcNow - CreatedAt > TimeToLive.Value;
+    }
+
+    // 5.4: СИСТЕМА МОНИТОРИНГА ПРОИЗВОДИТЕЛЬНОСТИ
+    public class PerformanceMonitor
+    {
+        private readonly ConcurrentDictionary<string, MethodMetrics> _metrics;
+        private readonly List<PerformanceAlert> _alerts;
+
+        public PerformanceMonitor()
+        {
+            _metrics = new ConcurrentDictionary<string, MethodMetrics>();
+            _alerts = new List<PerformanceAlert>();
+        }
+
+        public IDisposable TrackMethod(string methodName)
+        {
+            return new MethodTracker(this, methodName);
+        }
+
+        public void RecordMeasurement(string methodName, TimeSpan duration, bool success = true)
+        {
+            var metrics = _metrics.GetOrAdd(methodName, _ => new MethodMetrics());
+            metrics.RecordMeasurement(duration, success);
+            CheckAlerts(methodName, metrics);
+        }
+
+        private void CheckAlerts(string methodName, MethodMetrics metrics)
+        {
+            if (metrics.AverageResponseTime > TimeSpan.FromSeconds(1))
+            {
+                _alerts.Add(new PerformanceAlert
+                {
+                    MethodName = methodName,
+                    Type = AlertType.HighLatency,
+                    Value = metrics.AverageResponseTime,
+                    Threshold = TimeSpan.FromSeconds(1),
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+        }
+
+        public PerformanceReport GenerateReport()
+        {
+            return new PerformanceReport
+            {
+                Metrics = _metrics.ToDictionary(kv => kv.Key, kv => kv.Value),
+                Alerts = _alerts,
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+    }
+
+    public class MethodTracker : IDisposable
+    {
+        private readonly PerformanceMonitor _monitor;
+        private readonly string _methodName;
+        private readonly Stopwatch _stopwatch;
+
+        public MethodTracker(PerformanceMonitor monitor, string methodName)
+        {
+            _monitor = monitor;
+            _methodName = methodName;
+            _stopwatch = Stopwatch.StartNew();
+        }
+
+        public void Dispose()
+        {
+            _stopwatch.Stop();
+            _monitor.RecordMeasurement(_methodName, _stopwatch.Elapsed, true);
+        }
+    }
+
+    public class MethodMetrics
+    {
+        private long _count;
+        private long _errorCount;
+        private TimeSpan _totalTime;
+        private readonly List<TimeSpan> _recentDurations = new List<TimeSpan>();
+
+        public void RecordMeasurement(TimeSpan duration, bool success)
+        {
+            Interlocked.Increment(ref _count);
+            if (!success) Interlocked.Increment(ref _errorCount);
+
+            lock (_recentDurations)
+            {
+                _totalTime += duration;
+                _recentDurations.Add(duration);
+                if (_recentDurations.Count > 1000)
+                    _recentDurations.RemoveAt(0);
+            }
+        }
+
+        public long CallCount => _count;
+        public double ErrorRate => _count > 0 ? (double)_errorCount / _count : 0;
+        public TimeSpan AverageResponseTime => _count > 0 ? TimeSpan.FromTicks(_totalTime.Ticks / _count) : TimeSpan.Zero;
+    }
+
+    public class PerformanceAlert
+    {
+        public string MethodName { get; set; }
+        public AlertType Type { get; set; }
+        public TimeSpan Value { get; set; }
+        public TimeSpan Threshold { get; set; }
+        public DateTime Timestamp { get; set; }
+    }
+
+    public enum AlertType { HighLatency, HighErrorRate }
+
+    public class PerformanceReport
+    {
+        public Dictionary<string, MethodMetrics> Metrics { get; set; }
+        public List<PerformanceAlert> Alerts { get; set; }
+        public DateTime GeneratedAt { get; set; }
+    }
+
+    // 5.5: СИСТЕМА КОНФИГУРАЦИИ С ГОРЯЧЕЙ ПЕРЕЗАГРУЗКОЙ
+    public class HotReloadConfiguration : IDisposable
+    {
+        private readonly string _configPath;
+        private readonly FileSystemWatcher _watcher;
+        private Dictionary<string, object> _config;
+        private readonly List<Action<ConfigurationChange>> _listeners;
+        private readonly Timer _reloadTimer;
+        private DateTime _lastWriteTime;
+
+        public HotReloadConfiguration(string configPath)
+        {
+            _configPath = configPath;
+            _config = new Dictionary<string, object>();
+            _listeners = new List<Action<ConfigurationChange>>();
+
+            // Создаем директорию если не существует
+            var directory = Path.GetDirectoryName(configPath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            // Используем таймер вместо FileSystemWatcher для большей надежности
+            _reloadTimer = new Timer(CheckForChanges, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+
+            LoadConfiguration();
+        }
+
+        private void CheckForChanges(object state)
+        {
+            try
+            {
+                if (File.Exists(_configPath))
+                {
+                    var lastWrite = File.GetLastWriteTime(_configPath);
+                    if (lastWrite > _lastWriteTime)
+                    {
+                        _lastWriteTime = lastWrite;
+                        LoadConfiguration();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error checking config changes: {ex.Message}");
+            }
+        }
+
+        private void LoadConfiguration()
+        {
+            try
+            {
+                if (!File.Exists(_configPath))
+                {
+                    Console.WriteLine($"Config file not found: {_configPath}");
+                    return;
+                }
+
+                var json = File.ReadAllText(_configPath);
+                var newConfig = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+
+                var changes = FindChanges(_config, newConfig);
+                _config = newConfig;
+
+                foreach (var change in changes)
+                    NotifyListeners(change);
+
+                Console.WriteLine($"Configuration reloaded: {_configPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to reload configuration: {ex.Message}");
+            }
+        }
+
+        private List<ConfigurationChange> FindChanges(Dictionary<string, object> oldConfig, Dictionary<string, object> newConfig)
+        {
+            var changes = new List<ConfigurationChange>();
+
+            foreach (var kvp in newConfig)
+            {
+                if (oldConfig.TryGetValue(kvp.Key, out var oldValue) && !Equals(oldValue, kvp.Value))
+                {
+                    changes.Add(new ConfigurationChange
+                    {
+                        Key = kvp.Key,
+                        OldValue = oldValue,
+                        NewValue = kvp.Value,
+                        ChangeType = ChangeType.Updated
+                    });
+                }
+                else if (!oldConfig.ContainsKey(kvp.Key))
+                {
+                    changes.Add(new ConfigurationChange
+                    {
+                        Key = kvp.Key,
+                        NewValue = kvp.Value,
+                        ChangeType = ChangeType.Added
+                    });
+                }
+            }
+
+            // Проверяем удаленные ключи
+            foreach (var kvp in oldConfig)
+            {
+                if (!newConfig.ContainsKey(kvp.Key))
+                {
+                    changes.Add(new ConfigurationChange
+                    {
+                        Key = kvp.Key,
+                        OldValue = kvp.Value,
+                        ChangeType = ChangeType.Removed
+                    });
+                }
+            }
+
+            return changes;
+        }
+
+        public T GetValue<T>(string key, T defaultValue = default)
+        {
+            if (_config.TryGetValue(key, out var value))
+            {
+                try
+                {
+                    return JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value));
+                }
+                catch
+                {
+                    return defaultValue;
+                }
+            }
+            return defaultValue;
+        }
+
+        public void SetValue<T>(string key, T value)
+        {
+            var oldValue = _config.ContainsKey(key) ? _config[key] : null;
+            _config[key] = value;
+
+            NotifyListeners(new ConfigurationChange
+            {
+                Key = key,
+                OldValue = oldValue,
+                NewValue = value,
+                ChangeType = oldValue == null ? ChangeType.Added : ChangeType.Updated
+            });
+
+            SaveConfiguration();
+        }
+
+        private void SaveConfiguration()
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_configPath, json);
+                _lastWriteTime = File.GetLastWriteTime(_configPath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to save configuration: {ex.Message}");
+            }
+        }
+
+        public void Subscribe(Action<ConfigurationChange> listener)
+        {
+            _listeners.Add(listener);
+        }
+
+        private void NotifyListeners(ConfigurationChange change)
+        {
+            foreach (var listener in _listeners)
+            {
+                try
+                {
+                    listener(change);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Configuration listener failed: {ex.Message}");
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            _reloadTimer?.Dispose();
+        }
+    }
+
+    public class ConfigurationChange
+    {
+        public string Key { get; set; }
+        public object OldValue { get; set; }
+        public object NewValue { get; set; }
+        public ChangeType ChangeType { get; set; }
+    }
+
+    public enum ChangeType { Added, Updated, Removed }
+
+    // 5.6: СИСТЕМА КЭШИРОВАНИЯ ЗАПРОСОВ (QUERY CACHE)
+    public class QueryCache
+    {
+        private readonly ConcurrentDictionary<string, QueryCacheEntry> _cache;
+        private readonly ConcurrentDictionary<string, HashSet<string>> _dependencies;
+        private readonly Timer _cleanupTimer;
+
+        public QueryCache()
+        {
+            _cache = new ConcurrentDictionary<string, QueryCacheEntry>();
+            _dependencies = new ConcurrentDictionary<string, HashSet<string>>();
+            _cleanupTimer = new Timer(_ => CleanupExpired(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        }
+
+        public async Task<T> GetOrAddAsync<T>(string cacheKey, Func<Task<T>> queryFactory, string[] dependencies = null, TimeSpan? ttl = null)
+        {
+            if (_cache.TryGetValue(cacheKey, out var entry) && !entry.IsExpired)
+                return (T)entry.Value;
+
+            var result = await queryFactory();
+            _cache[cacheKey] = new QueryCacheEntry(result, ttl ?? TimeSpan.FromMinutes(5));
+
+            if (dependencies != null)
+                _dependencies[cacheKey] = new HashSet<string>(dependencies);
+
+            return result;
+        }
+
+        public void Invalidate(string tableOrKey)
+        {
+            _cache.TryRemove(tableOrKey, out _);
+
+            var keysToInvalidate = _dependencies
+                .Where(kv => kv.Value.Contains(tableOrKey))
+                .Select(kv => kv.Key)
+                .ToList();
+
+            foreach (var key in keysToInvalidate)
+            {
+                _cache.TryRemove(key, out _);
+                _dependencies.TryRemove(key, out _);
+            }
+        }
+
+        private void CleanupExpired()
+        {
+            var expiredKeys = _cache.Where(kv => kv.Value.IsExpired).Select(kv => kv.Key).ToList();
+            foreach (var key in expiredKeys)
+            {
+                _cache.TryRemove(key, out _);
+                _dependencies.TryRemove(key, out _);
+            }
+        }
+    }
+
+    public class QueryCacheEntry
+    {
+        public object Value { get; }
+        public DateTime CreatedAt { get; }
+        public TimeSpan? TimeToLive { get; }
+
+        public QueryCacheEntry(object value, TimeSpan? ttl = null)
+        {
+            Value = value;
+            CreatedAt = DateTime.UtcNow;
+            TimeToLive = ttl;
+        }
+
+        public bool IsExpired => TimeToLive.HasValue && DateTime.UtcNow - CreatedAt > TimeToLive.Value;
+    }
+
+    // 5.7: СИСТЕМА БАЛАНСИРОВКИ НАГРУЗКИ
+    public class LoadBalancer
+    {
+        private readonly List<Server> _servers;
+        private readonly ILoadBalancingStrategy _strategy;
+        private readonly Timer _healthCheckTimer;
+
+        public LoadBalancer(ILoadBalancingStrategy strategy)
+        {
+            _servers = new List<Server>();
+            _strategy = strategy;
+            _healthCheckTimer = new Timer(_ => CheckServerHealth(), null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+        }
+
+        public void AddServer(Server server) => _servers.Add(server);
+        public void RemoveServer(string serverId) => _servers.RemoveAll(s => s.Id == serverId);
+
+        public Server GetNextServer()
+        {
+            var healthyServers = _servers.Where(s => s.IsHealthy).ToList();
+            return _strategy.SelectServer(healthyServers);
+        }
+
+        private void CheckServerHealth()
+        {
+            foreach (var server in _servers)
+            {
+                // Упрощенная проверка здоровья
+                server.IsHealthy = server.CurrentConnections < server.MaxConnections;
+            }
+        }
+    }
+
+    public class Server
+    {
+        public string Id { get; set; }
+        public string Url { get; set; }
+        public int Weight { get; set; } = 1;
+        public int CurrentConnections { get; set; }
+        public int MaxConnections { get; set; } = 100;
+        public bool IsHealthy { get; set; } = true;
+    }
+
+    public interface ILoadBalancingStrategy
+    {
+        Server SelectServer(List<Server> servers);
+    }
+
+    public class RoundRobinStrategy : ILoadBalancingStrategy
+    {
+        private int _currentIndex = -1;
+
+        public Server SelectServer(List<Server> servers)
+        {
+            if (servers.Count == 0) return null;
+            _currentIndex = (_currentIndex + 1) % servers.Count;
+            return servers[_currentIndex];
+        }
+    }
+
+    // 5.8: СИСТЕМА CIRCUIT BREAKER ДЛЯ ОТКАЗОУСТОЙЧИВОСТИ
+    public class CircuitBreaker
+    {
+        private readonly string _name;
+        private readonly int _failureThreshold;
+        private readonly TimeSpan _timeout;
+
+        private CircuitState _state = CircuitState.Closed;
+        private int _failureCount;
+        private DateTime _lastFailureTime;
+
+        public CircuitBreaker(string name, int failureThreshold = 5, TimeSpan? timeout = null)
+        {
+            _name = name;
+            _failureThreshold = failureThreshold;
+            _timeout = timeout ?? TimeSpan.FromSeconds(30);
+        }
+
+        public async Task<T> ExecuteAsync<T>(Func<Task<T>> action)
+        {
+            if (!AllowExecution())
+                throw new CircuitBreakerOpenException($"Circuit breaker '{_name}' is open");
+
+            try
+            {
+                var result = await action();
+                OnSuccess();
+                return result;
+            }
+            catch (Exception ex)
+            {
+                OnFailure();
+                throw new CircuitBreakerExecutionException($"Execution failed", ex);
+            }
+        }
+
+        private bool AllowExecution()
+        {
+            if (_state == CircuitState.Closed) return true;
+            if (_state == CircuitState.Open && DateTime.UtcNow - _lastFailureTime > _timeout)
+            {
+                _state = CircuitState.Closed;
+                _failureCount = 0;
+                return true;
+            }
+            return false;
+        }
+
+        private void OnSuccess() => _failureCount = 0;
+        private void OnFailure()
+        {
+            _failureCount++;
+            _lastFailureTime = DateTime.UtcNow;
+            if (_failureCount >= _failureThreshold)
+                _state = CircuitState.Open;
+        }
+
+        public CircuitState GetState() => _state;
+    }
+
+    public enum CircuitState { Closed, Open, HalfOpen }
+
+    public class CircuitBreakerOpenException : Exception
+    {
+        public CircuitBreakerOpenException(string message) : base(message) { }
+    }
+
+    public class CircuitBreakerExecutionException : Exception
+    {
+        public CircuitBreakerExecutionException(string message, Exception inner) : base(message, inner) { }
+    }
+
+    // 5.9: СИСТЕМА RATE LIMITING (THROTTLING)
+    public class RateLimiter
+    {
+        private readonly ConcurrentDictionary<string, RateLimitBucket> _buckets;
+        private readonly int _maxRequests;
+        private readonly TimeSpan _timeWindow;
+
+        public RateLimiter(int maxRequests, TimeSpan timeWindow)
+        {
+            _maxRequests = maxRequests;
+            _timeWindow = timeWindow;
+            _buckets = new ConcurrentDictionary<string, RateLimitBucket>();
+        }
+
+        public bool TryAcquire(string key = "global")
+        {
+            var bucket = _buckets.GetOrAdd(key, _ => new RateLimitBucket(_maxRequests, _timeWindow));
+            return bucket.TryAcquire();
+        }
+    }
+
+    public class RateLimitBucket
+    {
+        private readonly int _maxRequests;
+        private readonly TimeSpan _timeWindow;
+        private int _remainingRequests;
+        private DateTime _windowStart;
+
+        public RateLimitBucket(int maxRequests, TimeSpan timeWindow)
+        {
+            _maxRequests = maxRequests;
+            _timeWindow = timeWindow;
+            _remainingRequests = maxRequests;
+            _windowStart = DateTime.UtcNow;
+        }
+
+        public bool TryAcquire()
+        {
+            if (DateTime.UtcNow - _windowStart >= _timeWindow)
+            {
+                _remainingRequests = _maxRequests;
+                _windowStart = DateTime.UtcNow;
+            }
+
+            if (_remainingRequests > 0)
+            {
+                _remainingRequests--;
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    // 5.10: СИСТЕМА DEPENDENCY INJECTION (DI КОНТЕЙНЕР)
+    public class DIContainer
+    {
+        private readonly Dictionary<Type, ServiceRegistration> _registrations;
+        private readonly Dictionary<Type, object> _singletons;
+
+        public DIContainer()
+        {
+            _registrations = new Dictionary<Type, ServiceRegistration>();
+            _singletons = new Dictionary<Type, object>();
+        }
+
+        public void Register<TService, TImplementation>(ServiceLifetime lifetime = ServiceLifetime.Transient)
+            where TImplementation : TService
+        {
+            _registrations[typeof(TService)] = new ServiceRegistration
+            {
+                ServiceType = typeof(TService),
+                ImplementationType = typeof(TImplementation),
+                Lifetime = lifetime
+            };
+        }
+
+        public TService Resolve<TService>()
+        {
+            return (TService)Resolve(typeof(TService));
+        }
+
+        public object Resolve(Type serviceType)
+        {
+            if (!_registrations.TryGetValue(serviceType, out var registration))
+                throw new InvalidOperationException($"Service {serviceType.Name} is not registered");
+
+            if (registration.Lifetime == ServiceLifetime.Singleton && _singletons.TryGetValue(serviceType, out var singleton))
+                return singleton;
+
+            var implementationType = registration.ImplementationType ?? registration.ServiceType;
+            var constructor = implementationType.GetConstructors().OrderByDescending(c => c.GetParameters().Length).First();
+            var parameters = constructor.GetParameters();
+            var parameterInstances = new object[parameters.Length];
+
+            for (int i = 0; i < parameters.Length; i++)
+                parameterInstances[i] = Resolve(parameters[i].ParameterType);
+
+            var instance = constructor.Invoke(parameterInstances);
+
+            if (registration.Lifetime == ServiceLifetime.Singleton)
+                _singletons[serviceType] = instance;
+
+            return instance;
+        }
+    }
+
+    public class ServiceRegistration
+    {
+        public Type ServiceType { get; set; }
+        public Type ImplementationType { get; set; }
+        public ServiceLifetime Lifetime { get; set; }
+    }
+
+    public enum ServiceLifetime { Transient, Scoped, Singleton }
+
+    // 5.11: СИСТЕМА МИГРАЦИЙ ДЛЯ БД
+    public class MigrationManager
+    {
+        private readonly List<Migration> _migrations;
+        private readonly string _connectionString;
+        private readonly Func<string, IDbConnection> _connectionFactory;
+
+        public MigrationManager(string connectionString, Func<string, IDbConnection> connectionFactory = null)
+        {
+            _connectionString = connectionString;
+            _migrations = new List<Migration>();
+            _connectionFactory = connectionFactory ?? CreateDefaultConnection;
+            EnsureMigrationTable();
+        }
+
+        public void AddMigration(Migration migration)
+        {
+            _migrations.Add(migration);
+        }
+
+        public void MigrateToLatest()
+        {
+            var appliedMigrations = GetAppliedMigrations();
+            var pendingMigrations = _migrations.Where(m => !appliedMigrations.Contains(m.Id)).OrderBy(m => m.Id);
+
+            foreach (var migration in pendingMigrations)
+            {
+                try
+                {
+                    ExecuteMigration(migration);
+                    RecordMigration(migration.Id);
+                    Console.WriteLine($"Applied migration: {migration.Id}");
+                }
+                catch (Exception ex)
+                {
+                    throw new MigrationException($"Migration {migration.Id} failed", ex);
+                }
+            }
+        }
+
+        public void Rollback(string migrationId)
+        {
+            var migration = _migrations.FirstOrDefault(m => m.Id == migrationId);
+            if (migration != null)
+            {
+                ExecuteRollback(migration);
+                RemoveMigrationRecord(migrationId);
+                Console.WriteLine($"Rolled back migration: {migrationId}");
+            }
+        }
+
+        private void ExecuteRollback(Migration migration)
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            try
+            {
+                var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = migration.DownScript;
+                command.ExecuteNonQuery();
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+        }
+
+        private void RemoveMigrationRecord(string migrationId)
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM __Migrations WHERE Id = @id";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@id";
+            parameter.Value = migrationId;
+            command.Parameters.Add(parameter);
+            command.ExecuteNonQuery();
+        }
+
+        private void EnsureMigrationTable()
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS __Migrations (
+                    Id TEXT PRIMARY KEY,
+                    AppliedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+                )";
+            command.ExecuteNonQuery();
+        }
+
+        private List<string> GetAppliedMigrations()
+        {
+            var migrations = new List<string>();
+            using var connection = CreateConnection();
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id FROM __Migrations ORDER BY AppliedAt";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                migrations.Add(reader.GetString(0));
+            return migrations;
+        }
+
+        private void ExecuteMigration(Migration migration)
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            try
+            {
+                var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = migration.UpScript;
+                command.ExecuteNonQuery();
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+        }
+
+        private void RecordMigration(string migrationId)
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO __Migrations (Id) VALUES (@id)";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@id";
+            parameter.Value = migrationId;
+            command.Parameters.Add(parameter);
+            command.ExecuteNonQuery();
+        }
+
+        private IDbConnection CreateConnection()
+        {
+            return _connectionFactory(_connectionString);
+        }
+
+        private IDbConnection CreateDefaultConnection(string connectionString)
+        {
+            // Упрощенная реализация для демонстрации
+            // В реальном приложении здесь будет создание конкретного типа соединения
+            return new MockDbConnection();
+        }
+    }
+
+    // Mock реализация для демонстрации
+    public class MockDbConnection : IDbConnection
+    {
+        private ConnectionState _state = ConnectionState.Closed;
+
+        public string ConnectionString { get; set; }
+        public int ConnectionTimeout => 30;
+        public string Database => "MockDatabase";
+        public ConnectionState State => _state;
+
+        public IDbTransaction BeginTransaction()
+        {
+            return new MockDbTransaction();
+        }
+
+        public IDbTransaction BeginTransaction(IsolationLevel il)
+        {
+            return new MockDbTransaction();
+        }
+
+        public void ChangeDatabase(string databaseName) { }
+
+        public void Close()
+        {
+            _state = ConnectionState.Closed;
+        }
+
+        public IDbCommand CreateCommand()
+        {
+            return new MockDbCommand();
+        }
+
+        public void Open()
+        {
+            _state = ConnectionState.Open;
+        }
+
+        public void Dispose()
+        {
+            Close();
+        }
+    }
+
+    public class MockDbCommand : IDbCommand
+    {
+        public string CommandText { get; set; }
+        public int CommandTimeout { get; set; }
+        public CommandType CommandType { get; set; }
+        public IDbConnection Connection { get; set; }
+        public IDataParameterCollection Parameters { get; }
+        public IDbTransaction Transaction { get; set; }
+        public UpdateRowSource UpdatedRowSource { get; set; }
+
+        public void Cancel() { }
+
+        public IDbDataParameter CreateParameter()
+        {
+            return new MockDbParameter();
+        }
+
+        public int ExecuteNonQuery()
+        {
+            Console.WriteLine($"Executing: {CommandText}");
+            return 1;
+        }
+
+        public IDataReader ExecuteReader()
+        {
+            return new MockDataReader();
+        }
+
+        public IDataReader ExecuteReader(CommandBehavior behavior)
+        {
+            return new MockDataReader();
+        }
+
+        public object ExecuteScalar()
+        {
+            return null;
+        }
+
+        public void Prepare() { }
+
+        public void Dispose() { }
+    }
+
+    public class MockDbTransaction : IDbTransaction
+    {
+        public IDbConnection Connection => null;
+        public IsolationLevel IsolationLevel => IsolationLevel.ReadCommitted;
+
+        public void Commit()
+        {
+            Console.WriteLine("Transaction committed");
+        }
+
+        public void Rollback()
+        {
+            Console.WriteLine("Transaction rolled back");
+        }
+
+        public void Dispose() { }
+    }
+
+    public class MockDbParameter : IDbDataParameter
+    {
+        public DbType DbType { get; set; }
+        public ParameterDirection Direction { get; set; }
+        public bool IsNullable => true;
+        public string ParameterName { get; set; }
+        public string SourceColumn { get; set; }
+        public DataRowVersion SourceVersion { get; set; }
+        public object Value { get; set; }
+        public byte Precision { get; set; }
+        public byte Scale { get; set; }
+        public int Size { get; set; }
+    }
+
+    public class MockParameterCollection
+    {
+        private readonly List<object> _parameters = new List<object>();
+
+        public object this[string parameterName]
+        {
+            get => _parameters.FirstOrDefault(p => ((IDbDataParameter)p).ParameterName == parameterName);
+            set
+            {
+                var existing = _parameters.FirstOrDefault(p => ((IDbDataParameter)p).ParameterName == parameterName);
+                if (existing != null)
+                    _parameters.Remove(existing);
+                _parameters.Add(value);
+            }
+        }
+
+        public object this[int index]
+        {
+            get => _parameters[index];
+            set => _parameters[index] = value;
+        }
+
+        public bool IsReadOnly => false;
+        public bool IsFixedSize => false;
+        public int Count => _parameters.Count;
+        public object SyncRoot => this;
+
+        public int Add(object value)
+        {
+            _parameters.Add(value);
+            return _parameters.Count - 1;
+        }
+
+        public void Clear()
+        {
+            _parameters.Clear();
+        }
+
+        public bool Contains(string parameterName)
+        {
+            return _parameters.Any(p => ((IDbDataParameter)p).ParameterName == parameterName);
+        }
+
+        public bool Contains(object value)
+        {
+            return _parameters.Contains(value);
+        }
+
+        public void CopyTo(Array array, int index)
+        {
+            _parameters.CopyTo((object[])array, index);
+        }
+
+        public IEnumerator GetEnumerator()
+        {
+            return _parameters.GetEnumerator();
+        }
+
+        public int IndexOf(string parameterName)
+        {
+            return _parameters.FindIndex(p => ((IDbDataParameter)p).ParameterName == parameterName);
+        }
+
+        public int IndexOf(object value)
+        {
+            return _parameters.IndexOf(value);
+        }
+
+        public void Insert(int index, object value)
+        {
+            _parameters.Insert(index, value);
+        }
+
+        public void Remove(object value)
+        {
+            _parameters.Remove(value);
+        }
+
+        public void RemoveAt(string parameterName)
+        {
+            var index = IndexOf(parameterName);
+            if (index >= 0)
+                _parameters.RemoveAt(index);
+        }
+
+        public void RemoveAt(int index)
+        {
+            _parameters.RemoveAt(index);
+        }
+    }
+
+    public class MockDataReader : IDataReader
+    {
+        private int _currentRow = -1;
+        private readonly List<Dictionary<string, object>> _data = new List<Dictionary<string, object>>();
+
+        public MockDataReader()
+        {
+            // Добавляем тестовые данные для миграций
+            _data.Add(new Dictionary<string, object> { ["Id"] = "001_Initial" });
+            _data.Add(new Dictionary<string, object> { ["Id"] = "002_AddUsers" });
+        }
+
+        public object this[string name] => _data[_currentRow][name];
+        public object this[int i] => _data[_currentRow].Values.ElementAt(i);
+        public int Depth => 0;
+        public bool IsClosed => false;
+        public int RecordsAffected => _data.Count;
+        public int FieldCount => _data.Count > 0 ? _data[0].Count : 0;
+
+        public void Close() { }
+
+        public void Dispose() { }
+
+        public bool GetBoolean(int i) => (bool)this[i];
+        public byte GetByte(int i) => (byte)this[i];
+        public long GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length) => 0;
+        public char GetChar(int i) => (char)this[i];
+        public long GetChars(int i, long fieldOffset, char[] buffer, int bufferoffset, int length) => 0;
+        public IDataReader GetData(int i) => this;
+        public string GetDataTypeName(int i) => this[i]?.GetType().Name;
+        public DateTime GetDateTime(int i) => (DateTime)this[i];
+        public decimal GetDecimal(int i) => (decimal)this[i];
+        public double GetDouble(int i) => (double)this[i];
+        public Type GetFieldType(int i) => this[i]?.GetType();
+        public float GetFloat(int i) => (float)this[i];
+        public Guid GetGuid(int i) => (Guid)this[i];
+        public short GetInt16(int i) => (short)this[i];
+        public int GetInt32(int i) => (int)this[i];
+        public long GetInt64(int i) => (long)this[i];
+        public string GetName(int i) => _data.Count > 0 ? _data[0].Keys.ElementAt(i) : "";
+        public int GetOrdinal(string name) => _data.Count > 0 ? _data[0].Keys.ToList().IndexOf(name) : -1;
+        public DataTable GetSchemaTable() => new DataTable();
+        public string GetString(int i) => (string)this[i];
+        public object GetValue(int i) => this[i];
+        public int GetValues(object[] values)
+        {
+            int count = Math.Min(values.Length, FieldCount);
+            for (int i = 0; i < count; i++)
+                values[i] = this[i];
+            return count;
+        }
+        public bool IsDBNull(int i) => this[i] == null;
+        public bool NextResult() => false;
+        public bool Read()
+        {
+            _currentRow++;
+            return _currentRow < _data.Count;
+        }
+    }
+
+    public class Migration
+    {
+        public string Id { get; set; }
+        public string Description { get; set; }
+        public string UpScript { get; set; }
+        public string DownScript { get; set; }
+    }
+
+    public class MigrationException : Exception
+    {
+        public MigrationException(string message, Exception inner) : base(message, inner) { }
+    }
+
+    // 5.12: СИСТЕМА АУДИТА (AUDIT TRAIL)
+    public class AuditSystem
+    {
+        private readonly List<AuditRecord> _records;
+        private readonly Timer _cleanupTimer;
+
+        public AuditSystem()
+        {
+            _records = new List<AuditRecord>();
+            _cleanupTimer = new Timer(_ => CleanupOldRecords(), null, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+        }
+
+        public void RecordChange(string entityType, string entityId, string action, object oldValue, object newValue, string userId)
+        {
+            var record = new AuditRecord
+            {
+                Id = Guid.NewGuid(),
+                Timestamp = DateTime.UtcNow,
+                EntityType = entityType,
+                EntityId = entityId,
+                Action = action,
+                OldValue = oldValue,
+                NewValue = newValue,
+                UserId = userId
+            };
+
+            lock (_records)
+            {
+                _records.Add(record);
+            }
+        }
+
+        public List<AuditRecord> GetHistory(string entityType, string entityId)
+        {
+            lock (_records)
+            {
+                return _records
+                    .Where(r => r.EntityType == entityType && r.EntityId == entityId)
+                    .OrderByDescending(r => r.Timestamp)
+                    .ToList();
+            }
+        }
+
+        public bool Revert(string recordId)
+        {
+            lock (_records)
+            {
+                var record = _records.FirstOrDefault(r => r.Id.ToString() == recordId);
+                if (record != null && record.OldValue != null)
+                {
+                    // Восстановление предыдущего значения
+                    RecordChange(record.EntityType, record.EntityId, "REVERT", record.NewValue, record.OldValue, "system");
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        private void CleanupOldRecords()
+        {
+            var cutoff = DateTime.UtcNow.AddYears(-1); // Храним 1 год
+            lock (_records)
+            {
+                _records.RemoveAll(r => r.Timestamp < cutoff);
+            }
+        }
+    }
+
+    public class AuditRecord
+    {
+        public Guid Id { get; set; }
+        public DateTime Timestamp { get; set; }
+        public string EntityType { get; set; }
+        public string EntityId { get; set; }
+        public string Action { get; set; }
+        public object OldValue { get; set; }
+        public object NewValue { get; set; }
+        public string UserId { get; set; }
+    }
+
+    // 5.13: СИСТЕМА КЭШИРОВАНИЯ НА РАЗНЫХ УРОВНЯХ
+    public class MultiLevelCache
+    {
+        private readonly ConcurrentDictionary<string, CacheItem> _l1Cache; // In-memory
+        private readonly QueryCache _l2Cache; // Distributed (упрощенно)
+        private readonly Timer _syncTimer;
+
+        public MultiLevelCache()
+        {
+            _l1Cache = new ConcurrentDictionary<string, CacheItem>();
+            _l2Cache = new QueryCache();
+            _syncTimer = new Timer(_ => SyncCaches(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+
+        public async Task<T> GetOrAddAsync<T>(string key, Func<Task<T>> valueFactory, TimeSpan? ttl = null)
+        {
+            // Пробуем L1
+            if (_l1Cache.TryGetValue(key, out var l1Item) && !l1Item.IsExpired)
+                return (T)l1Item.Value;
+
+            // Пробуем L2
+            try
+            {
+                var l2Value = await _l2Cache.GetOrAddAsync(key, valueFactory, ttl: ttl);
+
+                // Обновляем L1
+                _l1Cache[key] = new CacheItem(l2Value, ttl);
+
+                return l2Value;
+            }
+            catch
+            {
+                // Fallback к прямой загрузке
+                var value = await valueFactory();
+                _l1Cache[key] = new CacheItem(value, ttl);
+                return value;
+            }
+        }
+
+        public void Invalidate(string key)
+        {
+            _l1Cache.TryRemove(key, out _);
+            _l2Cache.Invalidate(key);
+        }
+
+        private void SyncCaches()
+        {
+            // Синхронизация: удаляем устаревшие элементы из L1
+            var expiredKeys = _l1Cache.Where(kv => kv.Value.IsExpired).Select(kv => kv.Key).ToList();
+            foreach (var key in expiredKeys)
+                _l1Cache.TryRemove(key, out _);
+        }
+    }
+
+    public class CacheItem
+    {
+        public object Value { get; }
+        public DateTime CreatedAt { get; }
+        public TimeSpan? TimeToLive { get; }
+
+        public CacheItem(object value, TimeSpan? ttl = null)
+        {
+            Value = value;
+            CreatedAt = DateTime.UtcNow;
+            TimeToLive = ttl;
+        }
+
+        public bool IsExpired => TimeToLive.HasValue && DateTime.UtcNow - CreatedAt > TimeToLive.Value;
+    }
+
+    // 5.14: СИСТЕМА МЕТРИК И АЛЕРТИНГА
+    public class MetricsSystem
+    {
+        private readonly ConcurrentDictionary<string, Metric> _metrics;
+        private readonly List<AlertRule> _alertRules;
+        private readonly Timer _evaluationTimer;
+
+        public MetricsSystem()
+        {
+            _metrics = new ConcurrentDictionary<string, Metric>();
+            _alertRules = new List<AlertRule>();
+            _evaluationTimer = new Timer(_ => EvaluateAlerts(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        }
+
+        public void RecordCounter(string name, double value = 1)
+        {
+            var metric = _metrics.GetOrAdd(name, _ => new CounterMetric());
+            ((CounterMetric)metric).Increment(value);
+        }
+
+        public void RecordGauge(string name, double value)
+        {
+            var metric = _metrics.GetOrAdd(name, _ => new GaugeMetric());
+            ((GaugeMetric)metric).SetValue(value);
+        }
+
+        public void RecordHistogram(string name, double value)
+        {
+            var metric = _metrics.GetOrAdd(name, _ => new HistogramMetric());
+            ((HistogramMetric)metric).RecordValue(value);
+        }
+
+        public void AddAlertRule(AlertRule rule)
+        {
+            _alertRules.Add(rule);
+        }
+
+        private void EvaluateAlerts()
+        {
+            foreach (var rule in _alertRules)
+            {
+                if (_metrics.TryGetValue(rule.MetricName, out var metric) && rule.IsTriggered(metric))
+                {
+                    OnAlertTriggered(rule, metric);
+                }
+            }
+        }
+
+        private void OnAlertTriggered(AlertRule rule, Metric metric)
+        {
+            // В реальности здесь отправка уведомлений
+            Console.WriteLine($"ALERT: {rule.Name} - {metric.GetValue()}");
+        }
+
+        public MetricsSnapshot GetSnapshot()
+        {
+            return new MetricsSnapshot
+            {
+                Metrics = _metrics.ToDictionary(kv => kv.Key, kv => kv.Value.GetValue()),
+                Timestamp = DateTime.UtcNow
+            };
+        }
+    }
+
+    public abstract class Metric
+    {
+        public abstract double GetValue();
+    }
+
+    public class CounterMetric : Metric
+    {
+        private double _value;
+        public void Increment(double value = 1) => _value += value;
+        public override double GetValue() => _value;
+    }
+
+    public class GaugeMetric : Metric
+    {
+        private double _value;
+        public void SetValue(double value) => _value = value;
+        public override double GetValue() => _value;
+    }
+
+    public class HistogramMetric : Metric
+    {
+        private readonly List<double> _values = new List<double>();
+        public void RecordValue(double value) => _values.Add(value);
+        public override double GetValue() => _values.Count > 0 ? _values.Average() : 0;
+    }
+
+    public class AlertRule
+    {
+        public string Name { get; set; }
+        public string MetricName { get; set; }
+        public Func<Metric, bool> Condition { get; set; }
+
+        public bool IsTriggered(Metric metric) => Condition(metric);
+    }
+
+    public class MetricsSnapshot
+    {
+        public Dictionary<string, double> Metrics { get; set; }
+        public DateTime Timestamp { get; set; }
+    }
+
+    // 5.15: СИСТЕМА РАСПРЕДЕЛЕННОГО ТРЕЙСИНГА
+    public class DistributedTracing
+    {
+        private readonly AsyncLocal<TraceContext> _currentTrace = new AsyncLocal<TraceContext>();
+        private readonly List<TraceSpan> _spans;
+
+        public DistributedTracing()
+        {
+            _spans = new List<TraceSpan>();
+        }
+
+        public TraceContext StartTrace(string operationName)
+        {
+            var traceId = Guid.NewGuid().ToString();
+            var context = new TraceContext
+            {
+                TraceId = traceId,
+                SpanId = Guid.NewGuid().ToString(),
+                OperationName = operationName,
+                StartTime = DateTime.UtcNow
+            };
+
+            _currentTrace.Value = context;
+            return context;
+        }
+
+        public TraceContext CreateChildSpan(string operationName)
+        {
+            var current = _currentTrace.Value;
+            if (current == null) return StartTrace(operationName);
+
+            return new TraceContext
+            {
+                TraceId = current.TraceId,
+                ParentSpanId = current.SpanId,
+                SpanId = Guid.NewGuid().ToString(),
+                OperationName = operationName,
+                StartTime = DateTime.UtcNow
+            };
+        }
+
+        public void EndSpan(TraceContext context, bool success = true)
+        {
+            var span = new TraceSpan
+            {
+                TraceId = context.TraceId,
+                SpanId = context.SpanId,
+                ParentSpanId = context.ParentSpanId,
+                OperationName = context.OperationName,
+                StartTime = context.StartTime,
+                EndTime = DateTime.UtcNow,
+                Success = success
+            };
+
+            lock (_spans)
+            {
+                _spans.Add(span);
+            }
+        }
+
+        public List<TraceSpan> GetTrace(string traceId)
+        {
+            lock (_spans)
+            {
+                return _spans.Where(s => s.TraceId == traceId).OrderBy(s => s.StartTime).ToList();
+            }
+        }
+
+        public TraceAnalysis AnalyzeTrace(string traceId)
+        {
+            var spans = GetTrace(traceId);
+            if (!spans.Any()) return null;
+
+            return new TraceAnalysis
+            {
+                TraceId = traceId,
+                TotalDuration = spans.Max(s => s.EndTime) - spans.Min(s => s.StartTime),
+                SpanCount = spans.Count,
+                Success = spans.All(s => s.Success),
+                CriticalPath = FindCriticalPath(spans)
+            };
+        }
+
+        private List<TraceSpan> FindCriticalPath(List<TraceSpan> spans)
+        {
+            // Упрощенный поиск критического пути
+            return spans.OrderByDescending(s => (s.EndTime - s.StartTime).TotalMilliseconds).Take(3).ToList();
+        }
+    }
+
+    public class TraceContext
+    {
+        public string TraceId { get; set; }
+        public string SpanId { get; set; }
+        public string ParentSpanId { get; set; }
+        public string OperationName { get; set; }
+        public DateTime StartTime { get; set; }
+    }
+
+    public class TraceSpan
+    {
+        public string TraceId { get; set; }
+        public string SpanId { get; set; }
+        public string ParentSpanId { get; set; }
+        public string OperationName { get; set; }
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
+        public bool Success { get; set; }
+    }
+
+    public class TraceAnalysis
+    {
+        public string TraceId { get; set; }
+        public TimeSpan TotalDuration { get; set; }
+        public int SpanCount { get; set; }
+        public bool Success { get; set; }
+        public List<TraceSpan> CriticalPath { get; set; }
+    }
+}
+
+// ПРИМЕРЫ ИСПОЛЬЗОВАНИЯ
+public class Program
+{
+    public static async Task Main(string[] args)
+    {
+        Console.WriteLine("=== Testing All 15 Professional Systems ===");
+
+        await TestMemoryProfiler();
+        await TestAdvancedLogger();
+        await TestMemoizationCache();
+        await TestPerformanceMonitor();
+        await TestHotReloadConfig();
+        await TestQueryCache();
+        await TestLoadBalancer();
+        await TestCircuitBreaker();
+        await TestRateLimiter();
+        await TestDIContainer();
+        await TestMigrationManager();
+        await TestAuditSystem();
+        await TestMultiLevelCache();
+        await TestMetricsSystem();
+        await TestDistributedTracing();
+
+        Console.WriteLine("All 15 systems tested successfully!");
+    }
+
+    static async Task TestMemoryProfiler()
+    {
+        Console.WriteLine("\n1. Testing Memory Profiler...");
+        using var profiler = new ProfessionalSystems.MemoryProfiler();
+        profiler.TakeSnapshot("Start");
+        var data = new byte[1024 * 1024];
+        profiler.TakeSnapshot("AfterAllocation");
+        var analysis = profiler.GetAnalysis();
+        Console.WriteLine($"Memory growth: {analysis.NetGrowth} bytes");
+    }
+
+    static async Task TestAdvancedLogger()
+    {
+        Console.WriteLine("\n2. Testing Advanced Logger...");
+        using var logger = new ProfessionalSystems.AdvancedLogger();
+        logger.Log(ProfessionalSystems.LogLevel.Info, "Test message");
+        await Task.Delay(100);
+    }
+
+    static async Task TestMemoizationCache()
+    {
+        Console.WriteLine("\n3. Testing Memoization Cache...");
+        var cache = new ProfessionalSystems.MemoizationCache();
+        int calls = 0;
+        var result = cache.Memoize(() => { calls++; return 42; });
+        Console.WriteLine($"Calls: {calls}, Result: {result}");
+    }
+
+    static async Task TestPerformanceMonitor()
+    {
+        Console.WriteLine("\n4. Testing Performance Monitor...");
+        var monitor = new ProfessionalSystems.PerformanceMonitor();
+        using (monitor.TrackMethod("TestMethod"))
+        {
+            await Task.Delay(100);
+        }
+        Console.WriteLine("Performance monitored");
+    }
+
+    static async Task TestHotReloadConfig()
+    {
+        Console.WriteLine("\n5. Testing Hot Reload Configuration...");
+
+        // Создаем тестовый конфиг файл в текущей директории
+        var configPath = "test_config.json";
+        var config = new Dictionary<string, object>
+        {
+            ["DatabaseConnection"] = "Server=localhost;Database=Test",
+            ["Timeout"] = 30,
+            ["FeatureFlags"] = new { NewUI = true, BetaFeatures = false }
+        };
+
+        File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+
+        using var hotConfig = new ProfessionalSystems.HotReloadConfiguration(configPath);
+
+        // Подписываемся на изменения
+        hotConfig.Subscribe(change =>
+        {
+            Console.WriteLine($"Config changed: {change.Key} = {change.NewValue} (Type: {change.ChangeType})");
+        });
+
+        Console.WriteLine($"Initial config value: {hotConfig.GetValue<string>("DatabaseConnection")}");
+
+        // Тестируем изменение конфигурации
+        hotConfig.SetValue("Timeout", 60);
+
+        await Task.Delay(2000);
+
+        Console.WriteLine($"Updated config value: {hotConfig.GetValue<int>("Timeout")}");
+
+        // Очищаем
+        File.Delete(configPath);
+    }
+
+    static async Task TestQueryCache()
+    {
+        Console.WriteLine("\n6. Testing Query Cache...");
+        var cache = new ProfessionalSystems.QueryCache();
+        var result = await cache.GetOrAddAsync("test", async () => { await Task.Delay(100); return "data"; });
+        Console.WriteLine($"Cached result: {result}");
+    }
+
+    static async Task TestLoadBalancer()
+    {
+        Console.WriteLine("\n7. Testing Load Balancer...");
+        var strategy = new ProfessionalSystems.RoundRobinStrategy();
+        var balancer = new ProfessionalSystems.LoadBalancer(strategy);
+        balancer.AddServer(new ProfessionalSystems.Server { Id = "1", Url = "http://server1" });
+        var server = balancer.GetNextServer();
+        Console.WriteLine($"Selected server: {server?.Url}");
+    }
+
+    static async Task TestCircuitBreaker()
+    {
+        Console.WriteLine("\n8. Testing Circuit Breaker...");
+        var breaker = new ProfessionalSystems.CircuitBreaker("Test");
+        try
+        {
+            var result = await breaker.ExecuteAsync(async () => await Task.FromResult("Success"));
+            Console.WriteLine($"Circuit result: {result}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Circuit exception: {ex.Message}");
+        }
+    }
+
+    static async Task TestRateLimiter()
+    {
+        Console.WriteLine("\n9. Testing Rate Limiter...");
+        var limiter = new ProfessionalSystems.RateLimiter(5, TimeSpan.FromSeconds(1));
+        for (int i = 0; i < 6; i++)
+        {
+            Console.WriteLine($"Request {i + 1}: {(limiter.TryAcquire() ? "Allowed" : "Denied")}");
+        }
+    }
+
+    static async Task TestDIContainer()
+    {
+        Console.WriteLine("\n10. Testing DI Container...");
+        var container = new ProfessionalSystems.DIContainer();
+        container.Register<ProfessionalSystems.AdvancedLogger, ProfessionalSystems.AdvancedLogger>();
+        var logger = container.Resolve<ProfessionalSystems.AdvancedLogger>();
+        Console.WriteLine("DI container resolved successfully");
+    }
+
+    static async Task TestMigrationManager()
+    {
+        Console.WriteLine("\n11. Testing Migration Manager...");
+        var manager = new ProfessionalSystems.MigrationManager("test_connection");
+
+        manager.AddMigration(new ProfessionalSystems.Migration
+        {
+            Id = "001_Initial",
+            Description = "Initial database setup",
+            UpScript = "CREATE TABLE Users (Id INT PRIMARY KEY, Name TEXT)",
+            DownScript = "DROP TABLE Users"
+        });
+
+        manager.AddMigration(new ProfessionalSystems.Migration
+        {
+            Id = "002_AddUsers",
+            Description = "Add sample users",
+            UpScript = "INSERT INTO Users VALUES (1, 'John'), (2, 'Jane')",
+            DownScript = "DELETE FROM Users"
+        });
+
+        try
+        {
+            manager.MigrateToLatest();
+            Console.WriteLine("Migrations applied successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Migration failed: {ex.Message}");
+        }
+    }
+
+    static async Task TestAuditSystem()
+    {
+        Console.WriteLine("\n12. Testing Audit System...");
+        var audit = new ProfessionalSystems.AuditSystem();
+        audit.RecordChange("User", "123", "UPDATE", "old", "new", "user1");
+        Console.WriteLine("Audit record created");
+    }
+
+    static async Task TestMultiLevelCache()
+    {
+        Console.WriteLine("\n13. Testing Multi-Level Cache...");
+        var cache = new ProfessionalSystems.MultiLevelCache();
+        var result = await cache.GetOrAddAsync("key", async () => await Task.FromResult("value"));
+        Console.WriteLine($"Multi-level cache result: {result}");
+    }
+
+    static async Task TestMetricsSystem()
+    {
+        Console.WriteLine("\n14. Testing Metrics System...");
+        var metrics = new ProfessionalSystems.MetricsSystem();
+        metrics.RecordCounter("requests", 1);
+        Console.WriteLine("Metric recorded");
+    }
+
+    static async Task TestDistributedTracing()
+    {
+        Console.WriteLine("\n15. Testing Distributed Tracing...");
+        var tracing = new ProfessionalSystems.DistributedTracing();
+        var trace = tracing.StartTrace("TestOperation");
+        tracing.EndSpan(trace);
+        Console.WriteLine("Trace completed");
+    }
+}
